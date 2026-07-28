@@ -234,7 +234,7 @@ describe("Discord notifier", () => {
     expect(payload).not.toContain("<@100000000000000000>");
   });
 
-  it("sends a minimal capacity failure without mentions", async () => {
+  it("sends a compact capacity failure embed without mentions", async () => {
     let payload = "";
     const notifier = new DiscordNotifier(
       "https://discord.com/api/webhooks/test/token",
@@ -249,10 +249,12 @@ describe("Discord notifier", () => {
 
     await notifier.sendCapacityFailure();
 
-    expect(payload).toContain("OCI A1 attempt failed: no capacity");
+    expect(payload).toContain('"username":"Oracle"');
+    expect(payload).toContain("A1 capacity unavailable");
+    expect(payload).toContain("A new deployment attempt has started.");
     expect(payload).toContain('"parse":[]');
     expect(payload).not.toContain("<@");
-    expect(payload).not.toContain('"embeds"');
+    expect(payload).toContain('"embeds"');
   });
 
   it("rejects non-Discord webhook hosts", () => {

@@ -10,7 +10,7 @@ It does **not** create or modify your VCN, subnet, security lists, SSH keys, or 
 |---|---|
 | No Apply job | Create one `AUTO_APPROVED` Apply job |
 | `ACCEPTED`, `IN_PROGRESS`, `CANCELING` | Wait; never create a duplicate |
-| `FAILED` with out-of-capacity details | Send a minimal no-mention Discord message, record the retry, and create a new Apply job |
+| `FAILED` with out-of-capacity details | Send a compact no-mention Discord embed as `Oracle`, record the retry, and create a new Apply job |
 | Other `FAILED` state | Send one Discord warning per distinct error and pause for 6 hours |
 | `CANCELED` | Create a new Apply job |
 | `SUCCEEDED` | Persist terminal success, notify Discord once, and stop creating jobs |
@@ -259,7 +259,7 @@ A code rollback does not erase Durable Object state. Avoid rolling back past the
 - **401 from OCI:** check tenancy OCID, user OCID, fingerprint, PKCS#8 key, and Worker/OCI clock assumptions.
 - **403 from OCI:** verify group membership and the three Resource Manager policy statements.
 - **404 from OCI:** verify `OCI_STACK_OCID` and `OCI_REGION`.
-- **Out of host capacity:** expected; a minimal no-mention Discord message is sent and a new Apply is started.
+- **Out of host capacity:** expected; a compact no-mention Discord embed is sent as `Oracle` and a new Apply is started.
 - **Discord 401/404:** rotate `DISCORD_WEBHOOK_URL`.
 - **Automation paused:** inspect the sanitized Discord error and logs. Fix the cause, then wait six hours or use the protected reset endpoint.
 - **Success but no Discord message:** keep Cron enabled; notification is retried without creating another Apply job.

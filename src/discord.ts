@@ -70,9 +70,16 @@ export class DiscordNotifier implements DiscordPort {
 
   async sendCapacityFailure(): Promise<void> {
     await this.post({
-      username: "OCI Capacity Monitor",
-      content: "OCI A1 attempt failed: no capacity. A new retry was started.",
+      username: "Oracle",
       allowed_mentions: { parse: [] },
+      embeds: [
+        {
+          title: "A1 capacity unavailable",
+          description: "No capacity was available. A new deployment attempt has started.",
+          color: 0xf59e0b,
+          timestamp: new Date().toISOString(),
+        },
+      ],
     });
   }
 
@@ -84,7 +91,7 @@ export class DiscordNotifier implements DiscordPort {
   }, mentionSuccessUser = false): Promise<void> {
     const content = mentionSuccessUser ? `<@${this.successUserId}>` : undefined;
     await this.post({
-      username: "OCI Capacity Monitor",
+      username: "Oracle",
       ...(content ? { content } : {}),
       allowed_mentions: content
         ? { parse: [], users: [this.successUserId] }
