@@ -59,7 +59,7 @@ describe("Worker endpoints and Cron routing", () => {
       );
     });
     const controller = createScheduledController({
-      cron: "*/30 * * * *",
+      cron: "*/15 * * * *",
       scheduledTime: Date.now(),
     });
     const ctx = createExecutionContext();
