@@ -74,7 +74,6 @@ class FakeOci implements OciClientPort {
 
 class FakeDiscord implements DiscordPort {
   successes = 0;
-  capacityFailures = 0;
   statuses: string[] = [];
   failures: Array<{ summary: string; fingerprint: string }> = [];
   failSuccess = false;
@@ -88,10 +87,6 @@ class FakeDiscord implements DiscordPort {
   async sendFailure(summary: string, fingerprint: string): Promise<void> {
     if (this.failFailure) throw new Error("Discord unavailable");
     this.failures.push({ summary, fingerprint });
-  }
-
-  async sendCapacityFailure(): Promise<void> {
-    this.capacityFailures += 1;
   }
 
   async sendRunStatus(result: { outcome: string }): Promise<void> {
@@ -162,7 +157,7 @@ describe("DeploymentEngine", () => {
     expect(state.value.successNotified).toBe(true);
   });
 
-  it("retries repeated capacity failures without notifying Discord", async () => {
+  it("retries repeated capacity failures with one status per run", async () => {
     const { engine, oci, discord, state } = fixture();
     const failed = job("failed-1", "FAILED");
     oci.jobs = [failed];
@@ -198,7 +193,6 @@ describe("DeploymentEngine", () => {
     expect(result.outcome).toBe("capacity_wait");
     expect(oci.createCalls).toHaveLength(2);
     expect(discord.failures).toHaveLength(0);
-    expect(discord.capacityFailures).toBe(2);
     expect(discord.statuses).toEqual(["capacity_wait", "capacity_wait"]);
     expect(state.value.retryCount).toBe(2);
     expect(state.value.lastCapacityFailureAt).toBe(10_000);
@@ -263,6 +257,27 @@ describe("DeploymentEngine", () => {
     expect(result.outcome).toBe("transient_error");
     expect(discord.failures).toHaveLength(0);
     expect(oci.createCalls).toHaveLength(0);
+  });
+
+  it("reports only the transient result when a capacity retry cannot start", async () => {
+    const { engine, oci, discord } = fixture();
+    const failed = job("failed-capacity", "FAILED");
+    oci.jobs = [failed];
+    oci.details.set(
+      failed.id,
+      job(failed.id, "FAILED", {
+        failureDetails: {
+          code: "TERRAFORM_EXECUTION_ERROR",
+          message: "Out of host capacity",
+        },
+      }),
+    );
+    oci.createError = new OciApiError("Gateway timeout", 504, "TRANSIENT");
+
+    const result = await engine.run("cron");
+
+    expect(result.outcome).toBe("transient_error");
+    expect(discord.statuses).toEqual(["transient_error"]);
   });
 
   it("reuses the OCI retry token after an ambiguous create failure", async () => {

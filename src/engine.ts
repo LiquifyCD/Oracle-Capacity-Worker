@@ -152,15 +152,6 @@ export class DeploymentEngine {
         capacityFailureDetected = true;
         state.retryCount += 1;
         state.lastCapacityFailureAt = this.now();
-        try {
-          await this.discord.sendCapacityFailure();
-        } catch (error) {
-          safeLog("error", "discord_capacity_notification_failed", {
-            message: sanitizeFailure(
-              error instanceof Error ? error.message : "Unknown error",
-            ),
-          });
-        }
         safeLog("info", "capacity_unavailable", {
           retries: state.retryCount,
           job: redactIdentifier(latest.id),

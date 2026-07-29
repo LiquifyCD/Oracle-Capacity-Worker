@@ -247,7 +247,10 @@ describe("Discord notifier", () => {
       },
     );
 
-    await notifier.sendCapacityFailure();
+    await notifier.sendRunStatus({
+      outcome: "capacity_wait",
+      message: "capacity unavailable",
+    });
 
     expect(payload).toContain('"username":"Oracle"');
     expect(payload).toContain("A1 capacity unavailable");

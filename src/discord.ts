@@ -68,21 +68,6 @@ export class DiscordNotifier implements DiscordPort {
     });
   }
 
-  async sendCapacityFailure(): Promise<void> {
-    await this.post({
-      username: "Oracle",
-      allowed_mentions: { parse: [] },
-      embeds: [
-        {
-          title: "A1 capacity unavailable",
-          description: "No capacity was available. A new deployment attempt has started.",
-          color: 0xf59e0b,
-          timestamp: new Date().toISOString(),
-        },
-      ],
-    });
-  }
-
   async sendRunStatus(result: RunResult): Promise<void> {
     const statuses: Partial<
       Record<
@@ -94,6 +79,11 @@ export class DiscordNotifier implements DiscordPort {
         title: "Deployment attempt started",
         description: "OCI accepted a new Apply job. It will be checked again in 15 minutes.",
         color: 0x3498db,
+      },
+      capacity_wait: {
+        title: "A1 capacity unavailable",
+        description: "No capacity was available. A new deployment attempt has started.",
+        color: 0xf59e0b,
       },
       job_active: {
         title: "Deployment still running",

@@ -59,7 +59,6 @@ export interface OciClientPort {
 
 export interface DiscordPort {
   sendSuccess(job: OciJob): Promise<void>;
-  sendCapacityFailure(): Promise<void>;
   sendFailure(summary: string, fingerprint: string): Promise<void>;
   sendRunStatus(result: RunResult): Promise<void>;
 }
