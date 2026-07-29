@@ -257,6 +257,32 @@ describe("Discord notifier", () => {
     expect(payload).toContain('"embeds"');
   });
 
+  it("sends a status embed for an active deployment without mentions", async () => {
+    let payload = "";
+    const notifier = new DiscordNotifier(
+      "https://discord.com/api/webhooks/test/token",
+      "minecraft-server",
+      "eu-stockholm-1",
+      "100000000000000000",
+      async (_input, init) => {
+        payload = typeof init?.body === "string" ? init.body : "";
+        return new Response(null, { status: 204 });
+      },
+    );
+
+    await notifier.sendRunStatus({
+      outcome: "job_active",
+      jobState: "ACCEPTED",
+      message: "active",
+    });
+
+    expect(payload).toContain('"username":"Oracle"');
+    expect(payload).toContain("Deployment still running");
+    expect(payload).toContain("ACCEPTED");
+    expect(payload).toContain('"parse":[]');
+    expect(payload).not.toContain("<@");
+  });
+
   it("rejects non-Discord webhook hosts", () => {
     expect(
       () =>

@@ -102,10 +102,12 @@ export class DeploymentEngine {
       state.updatedAt = this.now();
       await this.statePort.save(state);
     }
+    await this.notifyRunStatus(result);
     return result;
   }
 
   private async reconcile(state: AutomationState): Promise<RunResult> {
+    let capacityFailureDetected = false;
     const jobs = (await this.oci.listJobs())
       .filter((job) => job.operation === "APPLY")
       .sort((left, right) => (right.timeCreated ?? "").localeCompare(left.timeCreated ?? ""));
@@ -143,6 +145,7 @@ export class DeploymentEngine {
       delete state.activeJobId;
 
       if (CAPACITY_PATTERN.test(rawFailureText)) {
+        capacityFailureDetected = true;
         state.retryCount += 1;
         state.lastCapacityFailureAt = this.now();
         try {
@@ -186,10 +189,23 @@ export class DeploymentEngine {
       state: created.lifecycleState,
     });
     return {
-      outcome: "apply_created",
+      outcome: capacityFailureDetected ? "capacity_wait" : "apply_created",
       jobState: created.lifecycleState,
-      message: "A new auto-approved Apply job was created",
+      message: capacityFailureDetected
+        ? "No A1 capacity was available; a new Apply job was created"
+        : "A new auto-approved Apply job was created",
     };
+  }
+
+  private async notifyRunStatus(result: RunResult): Promise<void> {
+    try {
+      await this.discord.sendRunStatus(result);
+    } catch (error) {
+      safeLog("error", "discord_status_notification_failed", {
+        outcome: result.outcome,
+        message: sanitizeFailure(error instanceof Error ? error.message : "Unknown error"),
+      });
+    }
   }
 
   private async markSuccess(

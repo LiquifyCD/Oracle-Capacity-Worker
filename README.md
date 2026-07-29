@@ -9,13 +9,15 @@ It does **not** create or modify your VCN, subnet, security lists, SSH keys, or 
 | OCI state | Action |
 |---|---|
 | No Apply job | Create one `AUTO_APPROVED` Apply job |
-| `ACCEPTED`, `IN_PROGRESS`, `CANCELING` | Wait; never create a duplicate |
+| `ACCEPTED`, `IN_PROGRESS`, `CANCELING` | Report the state to Discord; never create a duplicate |
 | `FAILED` with out-of-capacity details | Send a compact no-mention Discord embed as `Oracle`, record the retry, and create a new Apply job |
 | Other `FAILED` state | Send one Discord warning per distinct error and pause for 6 hours |
 | `CANCELED` | Create a new Apply job |
 | `SUCCEEDED` | Persist terminal success, notify Discord once, and stop creating jobs |
-| OCI 408, 429, or 5xx | Wait until the next Cron run without notifying Discord |
+| OCI 408, 429, or 5xx | Report the temporary error and retry on the next Cron run |
 | OCI 400, 401, 403, 404, or unexpected response | Notify once and pause |
+
+Every scheduled check reports one concise Discord status until deployment succeeds. Success sends one final user mention and then remains quiet.
 
 Before every creation request, the Worker lists OCI jobs for the stack. This is the external idempotency boundary. The Durable Object adds a local execution gate, a persistent lease, and a stable OCI retry token, so overlapping Cron/manual runs and ambiguous POST timeouts do not produce duplicate Apply jobs.
 
@@ -96,7 +98,7 @@ npm.cmd run cf-typegen
 npm.cmd run verify
 ```
 
-`verify` performs generated-type validation, strict TypeScript checking, 32 mocked tests, a Wrangler dry run, and Worker startup profiling. `test/fixtures/verify-secrets.env` contains invalid test-only placeholders; it cannot authenticate to OCI or Discord.
+`verify` performs generated-type validation, strict TypeScript checking, 33 mocked tests, a Wrangler dry run, and Worker startup profiling. `test/fixtures/verify-secrets.env` contains invalid test-only placeholders; it cannot authenticate to OCI or Discord.
 
 To run only the mocked scheduled/endpoint tests:
 

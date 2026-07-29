@@ -75,6 +75,7 @@ class FakeOci implements OciClientPort {
 class FakeDiscord implements DiscordPort {
   successes = 0;
   capacityFailures = 0;
+  statuses: string[] = [];
   failures: Array<{ summary: string; fingerprint: string }> = [];
   failSuccess = false;
   failFailure = false;
@@ -91,6 +92,10 @@ class FakeDiscord implements DiscordPort {
 
   async sendCapacityFailure(): Promise<void> {
     this.capacityFailures += 1;
+  }
+
+  async sendRunStatus(result: { outcome: string }): Promise<void> {
+    this.statuses.push(result.outcome);
   }
 }
 
@@ -118,7 +123,7 @@ function fixture(now = 10_000) {
 
 describe("DeploymentEngine", () => {
   it("creates one Apply job when no Apply job exists", async () => {
-    const { engine, oci, state } = fixture();
+    const { engine, oci, state, discord } = fixture();
 
     const result = await engine.run("cron");
 
@@ -126,6 +131,7 @@ describe("DeploymentEngine", () => {
     expect(oci.createCalls).toEqual(["fixed-retry-token"]);
     expect(state.value.activeJobId).toBe("created-1");
     expect(state.value.pendingRetryToken).toBeUndefined();
+    expect(discord.statuses).toEqual(["apply_created"]);
   });
 
   it.each(["ACCEPTED", "IN_PROGRESS", "CANCELING"] as const)(
@@ -189,10 +195,11 @@ describe("DeploymentEngine", () => {
     oci.logs.set(secondFailed.id, "InternalError: no available host");
     await engine.run("cron");
 
-    expect(result.outcome).toBe("apply_created");
+    expect(result.outcome).toBe("capacity_wait");
     expect(oci.createCalls).toHaveLength(2);
     expect(discord.failures).toHaveLength(0);
     expect(discord.capacityFailures).toBe(2);
+    expect(discord.statuses).toEqual(["capacity_wait", "capacity_wait"]);
     expect(state.value.retryCount).toBe(2);
     expect(state.value.lastCapacityFailureAt).toBe(10_000);
   });

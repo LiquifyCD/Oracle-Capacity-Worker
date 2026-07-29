@@ -1,4 +1,4 @@
-import type { DiscordPort, OciJob } from "./types";
+import type { DiscordPort, OciJob, RunResult } from "./types";
 
 function sanitize(value: string): string {
   return value
@@ -80,6 +80,49 @@ export class DiscordNotifier implements DiscordPort {
           timestamp: new Date().toISOString(),
         },
       ],
+    });
+  }
+
+  async sendRunStatus(result: RunResult): Promise<void> {
+    const statuses: Partial<
+      Record<
+        RunResult["outcome"],
+        { title: string; description: string; color: number }
+      >
+    > = {
+      apply_created: {
+        title: "Deployment attempt started",
+        description: "OCI accepted a new Apply job. It will be checked again in 15 minutes.",
+        color: 0x3498db,
+      },
+      job_active: {
+        title: "Deployment still running",
+        description: `The OCI Apply job is ${result.jobState ?? "active"}. It will be checked again in 15 minutes.`,
+        color: 0x3498db,
+      },
+      paused: {
+        title: "Automation paused",
+        description: "Retries are temporarily paused after an error.",
+        color: 0xe67e22,
+      },
+      transient_error: {
+        title: "Temporary OCI error",
+        description: "The check could not finish. It will retry in 15 minutes.",
+        color: 0xf59e0b,
+      },
+      lease_active: {
+        title: "Check already running",
+        description: "Another check is still active. No duplicate deployment was started.",
+        color: 0x95a5a6,
+      },
+    };
+    const status = statuses[result.outcome];
+
+    if (!status) return;
+    await this.post({
+      username: "Oracle",
+      allowed_mentions: { parse: [] },
+      embeds: [{ ...status, timestamp: new Date().toISOString() }],
     });
   }
 
