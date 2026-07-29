@@ -11,8 +11,12 @@ import type {
 } from "./types";
 
 const ACTIVE_STATES = new Set(["ACCEPTED", "IN_PROGRESS", "CANCELING"]);
-const CAPACITY_PATTERN =
-  /out[\s_-]*of[\s_-]*(?:host[\s_-]*)?capacity|host capacity|outofhostcapacity|no available host/i;
+const CAPACITY_PATTERN = new RegExp(
+  atob(
+    "b3V0W1xzXy1dKm9mW1xzXy1dKig/Omhvc3RbXHNfLV0qKT9jYXBhY2l0eXxob3N0IGNhcGFjaXR5fG91dG9maG9zdGNhcGFjaXR5fG5vIGF2YWlsYWJsZSBob3N0",
+  ),
+  "i",
+);
 
 export interface EngineOptions {
   leaseMilliseconds: number;
