@@ -1,6 +1,6 @@
 # Oracle A1 Capacity Worker
 
-A Cloudflare Worker that retries one existing OCI Resource Manager stack every 15 minutes until its `APPLY` job succeeds. It uses a SQLite-backed Durable Object for strong coordination, OCI request signatures for authentication, and a Discord webhook for deduplicated notifications.
+A Cloudflare Worker that retries one existing OCI Resource Manager stack every 20 minutes until its `APPLY` job succeeds. It uses a SQLite-backed Durable Object for strong coordination, OCI request signatures for authentication, and a Discord webhook for deduplicated notifications.
 
 It does **not** create or modify your VCN, subnet, security lists, SSH keys, or Terraform stack. The configured stack remains the source of truth.
 
@@ -155,7 +155,7 @@ npx.cmd wrangler deploy --dry-run --secrets-file .env.production
 
 ### 4. Deploy code, Durable Object migration, Cron, and secrets
 
-This command creates Cloudflare resources and activates the 15-minute schedule:
+This command creates Cloudflare resources and activates the 20-minute schedule:
 
 ```powershell
 npx.cmd wrangler deploy --secrets-file .env.production
@@ -203,7 +203,7 @@ Invoke-RestMethod 'https://oracle-a1-capacity-worker.<your-subdomain>.workers.de
 npx.cmd wrangler tail oracle-a1-capacity-worker --format json
 ```
 
-3. In Cloudflare, open **Workers & Pages → oracle-a1-capacity-worker → Settings → Trigger Events → View events**. Wait for the next `*/15 * * * *` Cron event.
+3. In Cloudflare, open **Workers & Pages → oracle-a1-capacity-worker → Settings → Trigger Events → View events**. Wait for the next `*/20 * * * *` Cron event.
 
 4. Confirm OCI under **Developer Services → Resource Manager → Jobs**. There must be at most one active Apply job for the stack.
 
