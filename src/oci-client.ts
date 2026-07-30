@@ -41,6 +41,7 @@ export interface OciClientConfig {
     input: string | URL | Request,
     init?: RequestInit,
   ) => Promise<Response>;
+  sleeper?: (milliseconds: number) => Promise<void>;
 }
 
 interface RawJob {
@@ -138,6 +139,20 @@ function errorKindForStatus(status: number): OciErrorKind {
   return "UNEXPECTED";
 }
 
+function isRetryableStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500;
+}
+
+function retryDelayMilliseconds(response: Response, attempt: number): number {
+  const exponentialDelay = 2_000 * 2 ** (attempt - 1);
+  const retryAfterSeconds = Number(response.headers.get("retry-after"));
+  const requestedDelay =
+    Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0
+      ? retryAfterSeconds * 1_000
+      : 0;
+  return Math.min(Math.max(exponentialDelay, requestedDelay), 10_000);
+}
+
 function parseErrorPayload(text: string): { code?: string; message: string } {
   try {
     const parsed: unknown = JSON.parse(text);
@@ -163,11 +178,18 @@ export class OciResourceManagerClient implements OciClientPort {
     input: string | URL | Request,
     init?: RequestInit,
   ) => Promise<Response>;
+  private readonly sleeper: (milliseconds: number) => Promise<void>;
 
   constructor(private readonly config: OciClientConfig) {
     assertRegion(config.region);
     this.endpoint = `https://resourcemanager.${config.region}.oraclecloud.com/20180917`;
     this.fetcher = config.fetcher ?? ((input, init) => fetch(input, init));
+    this.sleeper =
+      config.sleeper ??
+      ((milliseconds) =>
+        new Promise((resolve) => {
+          setTimeout(resolve, milliseconds);
+        }));
   }
 
   async listJobs(): Promise<OciJob[]> {
@@ -247,30 +269,66 @@ export class OciResourceManagerClient implements OciClientPort {
     body?: string,
     extraHeaders?: Record<string, string>,
   ): Promise<Response> {
-    const headers = await signOciRequest(
-      {
+    const maximumAttempts = 3;
+
+    for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
+      const headers = await signOciRequest(
+        {
+          method,
+          url,
+          ...(body === undefined ? {} : { body }),
+          ...(extraHeaders === undefined ? {} : { extraHeaders }),
+        },
+        this.config.credentials,
+      );
+
+      let response: Response;
+      try {
+        response = await this.fetcher(url, {
+          method,
+          headers,
+          ...(body === undefined ? {} : { body }),
+          redirect: "manual",
+        });
+      } catch {
+        if (attempt === maximumAttempts) {
+          throw new OciApiError("OCI network request failed", 0, "TRANSIENT");
+        }
+        const delayMilliseconds = 2_000 * 2 ** (attempt - 1);
+        safeLog("warn", "oci_retry_scheduled", {
+          method,
+          status: 0,
+          attempt,
+          delayMilliseconds,
+          stack: redactIdentifier(this.config.stackId),
+        });
+        await this.sleeper(delayMilliseconds);
+        continue;
+      }
+
+      safeLog("info", "oci_response", {
         method,
-        url,
-        ...(body === undefined ? {} : { body }),
-        ...(extraHeaders === undefined ? {} : { extraHeaders }),
-      },
-      this.config.credentials,
-    );
+        status: response.status,
+        attempt,
+        stack: redactIdentifier(this.config.stackId),
+      });
 
-    const response = await this.fetcher(url, {
-      method,
-      headers,
-      ...(body === undefined ? {} : { body }),
-      redirect: "manual",
-    });
+      if (response.ok) return response;
 
-    safeLog("info", "oci_response", {
-      method,
-      status: response.status,
-      stack: redactIdentifier(this.config.stackId),
-    });
+      if (isRetryableStatus(response.status) && attempt < maximumAttempts) {
+        const delayMilliseconds = retryDelayMilliseconds(response, attempt);
+        await response.body?.cancel().catch(() => undefined);
+        safeLog("warn", "oci_retry_scheduled", {
+          method,
+          status: response.status,
+          attempt,
+          delayMilliseconds,
+          stack: redactIdentifier(this.config.stackId),
+        });
+        await this.sleeper(delayMilliseconds);
+        continue;
+      }
 
-    if (!response.ok) {
       const payload = parseErrorPayload(await readBoundedText(response, 32 * 1024));
       throw new OciApiError(
         payload.message,
@@ -279,6 +337,7 @@ export class OciResourceManagerClient implements OciClientPort {
         payload.code,
       );
     }
-    return response;
+
+    throw new OciApiError("OCI request retry limit reached", 0, "TRANSIENT");
   }
 }

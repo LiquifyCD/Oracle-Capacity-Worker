@@ -107,6 +107,77 @@ describe("OCI Resource Manager client", () => {
     );
   });
 
+  it("retries a throttled Apply with the same OCI retry token", async () => {
+    let attempts = 0;
+    const retryTokens: string[] = [];
+    const delays: number[] = [];
+    const client = new OciResourceManagerClient({
+      region: "eu-stockholm-1",
+      stackId: "stack-test",
+      stackLabel: "minecraft-server",
+      credentials: await credentials(),
+      fetcher: async (_input, init) => {
+        attempts += 1;
+        retryTokens.push(new Headers(init?.headers).get("opc-retry-token") ?? "");
+        if (attempts === 1) {
+          return Response.json(
+            { code: "TooManyRequests", message: "Slow down" },
+            { status: 429 },
+          );
+        }
+        return Response.json({
+          id: "job-created",
+          operation: "APPLY",
+          lifecycleState: "ACCEPTED",
+        });
+      },
+      sleeper: async (milliseconds) => {
+        delays.push(milliseconds);
+      },
+    });
+
+    const result = await client.createApplyJob("stable-retry-token");
+
+    expect(result.id).toBe("job-created");
+    expect(attempts).toBe(2);
+    expect(retryTokens).toEqual(["stable-retry-token", "stable-retry-token"]);
+    expect(delays).toEqual([2_000]);
+  });
+
+  it("stops after three throttled OCI attempts", async () => {
+    let attempts = 0;
+    const delays: number[] = [];
+    const client = new OciResourceManagerClient({
+      region: "eu-stockholm-1",
+      stackId: "stack-test",
+      stackLabel: "minecraft-server",
+      credentials: await credentials(),
+      fetcher: async () => {
+        attempts += 1;
+        return Response.json(
+          { code: "TooManyRequests", message: "Slow down" },
+          { status: 429 },
+        );
+      },
+      sleeper: async (milliseconds) => {
+        delays.push(milliseconds);
+      },
+    });
+
+    const error = await client
+      .createApplyJob("stable-retry-token")
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(OciApiError);
+    expect(error).toMatchObject({
+      status: 429,
+      kind: "TRANSIENT",
+      code: "TooManyRequests",
+    });
+    expect(attempts).toBe(3);
+    expect(delays).toEqual([2_000, 4_000]);
+  });
+
   it("classifies OCI permission failures without returning the response body", async () => {
     const client = new OciResourceManagerClient({
       region: "eu-stockholm-1",

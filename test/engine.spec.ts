@@ -47,6 +47,8 @@ class FakeOci implements OciClientPort {
   details = new Map<string, OciJob>();
   logs = new Map<string, string>();
   createCalls: string[] = [];
+  detailCalls: string[] = [];
+  logCalls: string[] = [];
   listError: Error | undefined;
   createError: Error | undefined;
 
@@ -56,12 +58,14 @@ class FakeOci implements OciClientPort {
   }
 
   async getJob(jobId: string): Promise<OciJob> {
+    this.detailCalls.push(jobId);
     const found = this.details.get(jobId) ?? this.jobs.find((item) => item.id === jobId);
     if (!found) throw new Error("Missing fake job");
     return clone(found);
   }
 
   async getJobLogsExcerpt(jobId: string): Promise<string> {
+    this.logCalls.push(jobId);
     return this.logs.get(jobId) ?? "";
   }
 
@@ -196,6 +200,8 @@ describe("DeploymentEngine", () => {
     expect(discord.statuses).toEqual(["capacity_wait", "capacity_wait"]);
     expect(state.value.retryCount).toBe(2);
     expect(state.value.lastCapacityFailureAt).toBe(10_000);
+    expect(oci.logCalls).toEqual(["failed-1", "failed-5"]);
+    expect(oci.detailCalls).toHaveLength(0);
   });
 
   it("notifies once and pauses after a meaningful failure", async () => {
@@ -220,6 +226,7 @@ describe("DeploymentEngine", () => {
     expect(discord.failures).toHaveLength(1);
     expect(state.value.errorFingerprints).toHaveLength(1);
     expect(oci.createCalls).toHaveLength(0);
+    expect(oci.detailCalls).toEqual(["failed-2"]);
   });
 
   it("notifies for a distinct meaningful failure after cooldown", async () => {

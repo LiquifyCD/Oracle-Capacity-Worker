@@ -134,21 +134,32 @@ export class DeploymentEngine {
 
     const latest = jobs[0];
     if (latest?.lifecycleState === "FAILED" && latest.id !== state.lastProcessedFailedJobId) {
-      const detailed = await this.oci.getJob(latest.id);
       const logs = await this.oci.getJobLogsExcerpt(latest.id);
-      const rawFailureText = [
-        detailed.failureDetails?.code,
-        detailed.failureDetails?.message,
+      let rawFailureText = [
+        latest.failureDetails?.code,
+        latest.failureDetails?.message,
         logs,
       ]
         .filter(Boolean)
         .join(" ");
+      let capacityFailure = CAPACITY_PATTERN.test(rawFailureText);
+      if (!capacityFailure) {
+        const detailed = await this.oci.getJob(latest.id);
+        rawFailureText = [
+          detailed.failureDetails?.code,
+          detailed.failureDetails?.message,
+          logs,
+        ]
+          .filter(Boolean)
+          .join(" ");
+        capacityFailure = CAPACITY_PATTERN.test(rawFailureText);
+      }
       const failureText = sanitizeFailure(rawFailureText);
       state.lastProcessedFailedJobId = latest.id;
       state.lastLifecycleState = "FAILED";
       delete state.activeJobId;
 
-      if (CAPACITY_PATTERN.test(rawFailureText)) {
+      if (capacityFailure) {
         capacityFailureDetected = true;
         state.retryCount += 1;
         state.lastCapacityFailureAt = this.now();
