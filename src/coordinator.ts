@@ -11,6 +11,7 @@ export interface CoordinatorStatus {
   retryCount: number;
   lastLifecycleState?: string;
   lastCapacityFailureAt?: number;
+  lastApplyCreatedAt?: number;
   pausedUntil?: number;
   leaseActive: boolean;
   nextCheckAt?: number;
@@ -26,6 +27,9 @@ export function nextAlarmDelayMilliseconds(
   result: RunResult,
   schedule: AlarmSchedule,
 ): number | null {
+  if (result.retryAfterMilliseconds !== undefined) {
+    return Math.max(1_000, result.retryAfterMilliseconds);
+  }
   if (result.outcome === "transient_error") {
     return schedule.transientRetryMilliseconds;
   }
@@ -138,6 +142,9 @@ export class DeploymentCoordinator extends DurableObject<Env> {
       ...(state.lastCapacityFailureAt
         ? { lastCapacityFailureAt: state.lastCapacityFailureAt }
         : {}),
+      ...(state.lastApplyCreatedAt
+        ? { lastApplyCreatedAt: state.lastApplyCreatedAt }
+        : {}),
       ...(state.pauseUntil ? { pausedUntil: state.pauseUntil } : {}),
       leaseActive: Boolean(state.leaseUntil && state.leaseUntil > now),
       ...(nextCheckAt ? { nextCheckAt } : {}),
@@ -208,6 +215,10 @@ export class DeploymentCoordinator extends DurableObject<Env> {
       errorCooldownMilliseconds: positiveSeconds(
         this.env.ERROR_COOLDOWN_SECONDS,
         "ERROR_COOLDOWN_SECONDS",
+      ),
+      createCooldownMilliseconds: positiveSeconds(
+        this.env.CREATE_COOLDOWN_SECONDS,
+        "CREATE_COOLDOWN_SECONDS",
       ),
     });
   }

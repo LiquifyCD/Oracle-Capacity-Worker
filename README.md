@@ -14,14 +14,14 @@ It does **not** create or modify your VCN, subnet, security lists, SSH keys, or 
 | Other `FAILED` state | Send one Discord warning per distinct error and pause for 6 hours |
 | `CANCELED` | Create a new Apply job |
 | `SUCCEEDED` | Persist terminal success, notify Discord once, and stop creating jobs |
-| OCI 408, 429, or 5xx | Retry with OCI-compatible exponential backoff; report a temporary error only if all attempts fail |
+| OCI 408, 429, or 5xx | Retry silently; a throttled `CreateJob` is deferred instead of repeated immediately |
 | OCI 400, 401, 403, 404, or unexpected response | Notify once and pause |
 
-The 20-minute Cron is a recovery backstop. A Durable Object alarm checks active jobs after 2 minutes and retries transient OCI failures after 5 minutes, removing the former 20-40 minute retry gap. Internal alarm checks stay quiet in Discord; every Cron reports one concise status, and success sends one final user mention.
+The 20-minute Cron is a recovery backstop. A Durable Object alarm checks active jobs after 2 minutes and retries transient OCI failures after 5 minutes, removing the former 20-40 minute retry gap. A persistent five-minute cooldown prevents Apply jobs from being created too close together. Discord reports confirmed capacity failures and success; transient and routine states stay quiet.
 
 Before every creation request, the Worker lists OCI jobs for the stack. This is the external idempotency boundary. The Durable Object adds a local execution gate, a persistent lease, and a stable OCI retry token, so overlapping Cron/manual runs and ambiguous POST timeouts do not produce duplicate Apply jobs.
 
-OCI requests are paced at least one second apart. Retryable failures use eight total attempts, exponential backoff from one second, 0-1000 ms jitter, a 30-second per-delay cap, and the server's `Retry-After` header when present.
+OCI requests are paced at least one second apart. Reads and retryable server failures use exponential backoff with jitter. A `CreateJob` response of `429` is not repeated in the same run; its stable retry token is persisted and the Durable Object retries after the cooldown.
 
 ## Project layout
 
@@ -100,7 +100,7 @@ npm.cmd run cf-typegen
 npm.cmd run verify
 ```
 
-`verify` performs generated-type validation, strict TypeScript checking, 39 mocked tests, a Wrangler dry run, and Worker startup profiling. `test/fixtures/verify-secrets.env` contains invalid test-only placeholders; it cannot authenticate to OCI or Discord.
+`verify` performs generated-type validation, strict TypeScript checking, 40 mocked tests, a Wrangler dry run, and Worker startup profiling. `test/fixtures/verify-secrets.env` contains invalid test-only placeholders; it cannot authenticate to OCI or Discord.
 
 To run only the mocked scheduled/endpoint tests:
 

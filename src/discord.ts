@@ -75,35 +75,10 @@ export class DiscordNotifier implements DiscordPort {
         { title: string; description: string; color: number }
       >
     > = {
-      apply_created: {
-        title: "Deployment attempt started",
-        description: "OCI accepted a new Apply job. It will be checked automatically.",
-        color: 0x3498db,
-      },
       capacity_wait: {
         title: "A1 capacity unavailable",
-        description: "No capacity was available. A new deployment attempt has started.",
+        description: "No capacity was available. The Worker will retry automatically.",
         color: 0xf59e0b,
-      },
-      job_active: {
-        title: "Deployment still running",
-        description: `The OCI Apply job is ${result.jobState ?? "active"}. It will be checked automatically.`,
-        color: 0x3498db,
-      },
-      paused: {
-        title: "Automation paused",
-        description: "Retries are temporarily paused after an error.",
-        color: 0xe67e22,
-      },
-      transient_error: {
-        title: "Temporary OCI error",
-        description: "The check could not finish. It will retry automatically.",
-        color: 0xf59e0b,
-      },
-      lease_active: {
-        title: "Check already running",
-        description: "Another check is still active. No duplicate deployment was started.",
-        color: 0x95a5a6,
       },
     };
     const status = statuses[result.outcome];

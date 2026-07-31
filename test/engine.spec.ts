@@ -106,6 +106,7 @@ function fixture(now = 10_000) {
   const engine = new DeploymentEngine(state, oci, discord, {
     leaseMilliseconds: 600_000,
     errorCooldownMilliseconds: 21_600_000,
+    createCooldownMilliseconds: 300_000,
     now: () => clock,
     uuid: () => "fixed-retry-token",
   });
@@ -130,7 +131,8 @@ describe("DeploymentEngine", () => {
     expect(oci.createCalls).toEqual(["fixed-retry-token"]);
     expect(state.value.activeJobId).toBe("created-1");
     expect(state.value.pendingRetryToken).toBeUndefined();
-    expect(discord.statuses).toEqual(["apply_created"]);
+    expect(discord.statuses).toEqual([]);
+    expect(state.value.lastApplyCreatedAt).toBe(10_000);
   });
 
   it("keeps internal alarm checks quiet in Discord", async () => {
@@ -156,7 +158,7 @@ describe("DeploymentEngine", () => {
   );
 
   it("recovers from stale local state when OCI already succeeded", async () => {
-    const { engine, oci, discord, state } = fixture();
+    const { engine, oci, discord, state, setClock } = fixture();
     oci.jobs = [job("success-1", "SUCCEEDED")];
 
     const first = await engine.run("cron");
@@ -171,7 +173,7 @@ describe("DeploymentEngine", () => {
   });
 
   it("retries repeated capacity failures with one status per run", async () => {
-    const { engine, oci, discord, state } = fixture();
+    const { engine, oci, discord, state, setClock } = fixture();
     const failed = job("failed-1", "FAILED");
     oci.jobs = [failed];
     oci.details.set(
@@ -189,6 +191,7 @@ describe("DeploymentEngine", () => {
     );
 
     const result = await engine.run("cron");
+    setClock(310_001);
     const secondFailed = job("failed-5", "FAILED");
     oci.jobs = [secondFailed];
     oci.details.set(
@@ -208,9 +211,26 @@ describe("DeploymentEngine", () => {
     expect(discord.failures).toHaveLength(0);
     expect(discord.statuses).toEqual(["capacity_wait", "capacity_wait"]);
     expect(state.value.retryCount).toBe(2);
-    expect(state.value.lastCapacityFailureAt).toBe(10_000);
+    expect(state.value.lastCapacityFailureAt).toBe(310_001);
     expect(oci.logCalls).toEqual(["failed-1", "failed-5"]);
     expect(oci.detailCalls).toHaveLength(0);
+  });
+
+  it("reports capacity but defers CreateJob until the cooldown expires", async () => {
+    const { engine, oci, discord, state } = fixture();
+    state.value.lastApplyCreatedAt = 9_000;
+    const failed = job("failed-cooldown", "FAILED");
+    oci.jobs = [failed];
+    oci.logs.set(failed.id, "Out of host capacity");
+
+    const result = await engine.run("alarm");
+
+    expect(result).toMatchObject({
+      outcome: "capacity_wait",
+      retryAfterMilliseconds: 299_000,
+    });
+    expect(oci.createCalls).toEqual([]);
+    expect(discord.statuses).toEqual(["capacity_wait"]);
   });
 
   it("notifies once and pauses after a meaningful failure", async () => {
@@ -293,7 +313,7 @@ describe("DeploymentEngine", () => {
     const result = await engine.run("cron");
 
     expect(result.outcome).toBe("transient_error");
-    expect(discord.statuses).toEqual(["transient_error"]);
+    expect(discord.statuses).toEqual([]);
   });
 
   it("reuses the OCI retry token after an ambiguous create failure", async () => {

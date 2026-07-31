@@ -284,9 +284,13 @@ export class OciResourceManagerClient implements OciClientPort {
         executionPlanStrategy: "AUTO_APPROVED",
       },
     });
-    const value = await this.requestJson("POST", url, body, {
-      "opc-retry-token": retryToken,
-    });
+    const value = await this.requestJson(
+      "POST",
+      url,
+      body,
+      { "opc-retry-token": retryToken },
+      false,
+    );
     return parseJob(value);
   }
 
@@ -295,8 +299,15 @@ export class OciResourceManagerClient implements OciClientPort {
     url: URL,
     body?: string,
     extraHeaders?: Record<string, string>,
+    retryThrottled = true,
   ): Promise<unknown> {
-    const response = await this.request(method, url, body, extraHeaders);
+    const response = await this.request(
+      method,
+      url,
+      body,
+      extraHeaders,
+      retryThrottled,
+    );
     const text = await readBoundedText(response, 1024 * 1024);
     try {
       return JSON.parse(text);
@@ -310,6 +321,7 @@ export class OciResourceManagerClient implements OciClientPort {
     url: URL,
     body?: string,
     extraHeaders?: Record<string, string>,
+    retryThrottled = true,
   ): Promise<Response> {
     for (let attempt = 1; attempt <= MAXIMUM_ATTEMPTS; attempt += 1) {
       await this.waitForRequestSlot();
@@ -361,7 +373,10 @@ export class OciResourceManagerClient implements OciClientPort {
 
       if (response.ok) return response;
 
-      if (isRetryableStatus(response.status) && attempt < MAXIMUM_ATTEMPTS) {
+      const retryable =
+        isRetryableStatus(response.status) &&
+        (response.status !== 429 || retryThrottled);
+      if (retryable && attempt < MAXIMUM_ATTEMPTS) {
         const delayMilliseconds = retryDelayMilliseconds(
           response,
           attempt,

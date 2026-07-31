@@ -33,6 +33,7 @@ export interface AutomationState {
   leaseUntil?: number;
   pendingRetryToken?: string;
   pendingRetryTokenCreatedAt?: number;
+  lastApplyCreatedAt?: number;
   updatedAt: number;
 }
 
@@ -41,12 +42,14 @@ export interface RunResult {
     | "apply_created"
     | "job_active"
     | "capacity_wait"
+    | "create_deferred"
     | "terminal_success"
     | "paused"
     | "transient_error"
     | "meaningful_error"
     | "lease_active";
   jobState?: JobLifecycleState;
+  retryAfterMilliseconds?: number;
   message: string;
 }
 

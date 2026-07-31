@@ -22,6 +22,7 @@ const CAPACITY_PATTERN = new RegExp(
 export interface EngineOptions {
   leaseMilliseconds: number;
   errorCooldownMilliseconds: number;
+  createCooldownMilliseconds: number;
   now?: () => number;
   uuid?: () => string;
 }
@@ -107,7 +108,9 @@ export class DeploymentEngine {
       state.updatedAt = this.now();
       await this.statePort.save(state);
     }
-    if (trigger !== "alarm") await this.notifyRunStatus(result);
+    if (result.outcome === "capacity_wait") {
+      await this.notifyRunStatus(result);
+    }
     return result;
   }
 
@@ -116,6 +119,14 @@ export class DeploymentEngine {
     const jobs = (await this.oci.listJobs())
       .filter((job) => job.operation === "APPLY")
       .sort((left, right) => (right.timeCreated ?? "").localeCompare(left.timeCreated ?? ""));
+
+    const observedCreatedAt = Date.parse(jobs[0]?.timeCreated ?? "");
+    if (Number.isFinite(observedCreatedAt) && observedCreatedAt <= this.now()) {
+      state.lastApplyCreatedAt = Math.max(
+        state.lastApplyCreatedAt ?? 0,
+        observedCreatedAt,
+      );
+    }
 
     const succeeded = jobs.find((job) => job.lifecycleState === "SUCCEEDED");
     if (succeeded) return this.markSuccess(state, succeeded);
@@ -176,6 +187,23 @@ export class DeploymentEngine {
       }
     }
 
+    const createAllowedAt =
+      (state.lastApplyCreatedAt ?? 0) + this.options.createCooldownMilliseconds;
+    const retryAfterMilliseconds = Math.max(0, createAllowedAt - this.now());
+    if (state.lastApplyCreatedAt && retryAfterMilliseconds > 0) {
+      safeLog("info", "apply_create_deferred", {
+        retryAfterMilliseconds,
+        capacityFailureDetected,
+      });
+      return {
+        outcome: capacityFailureDetected ? "capacity_wait" : "create_deferred",
+        retryAfterMilliseconds,
+        message: capacityFailureDetected
+          ? "No A1 capacity was available; creation is deferred by the OCI cooldown"
+          : "Apply creation is deferred by the OCI cooldown",
+      };
+    }
+
     const retryToken =
       state.pendingRetryToken &&
       state.pendingRetryTokenCreatedAt &&
@@ -187,6 +215,7 @@ export class DeploymentEngine {
     await this.statePort.save(state);
 
     const created = await this.oci.createApplyJob(retryToken);
+    state.lastApplyCreatedAt = this.now();
     state.activeJobId = created.id;
     state.lastLifecycleState = created.lifecycleState;
     delete state.pendingRetryToken;

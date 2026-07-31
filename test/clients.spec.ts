@@ -107,7 +107,7 @@ describe("OCI Resource Manager client", () => {
     );
   });
 
-  it("retries a throttled Apply with the same OCI retry token", async () => {
+  it("defers a throttled Apply without repeating CreateJob", async () => {
     let attempts = 0;
     let now = 0;
     const retryTokens: string[] = [];
@@ -120,17 +120,10 @@ describe("OCI Resource Manager client", () => {
       fetcher: async (_input, init) => {
         attempts += 1;
         retryTokens.push(new Headers(init?.headers).get("opc-retry-token") ?? "");
-        if (attempts === 1) {
-          return Response.json(
-            { code: "TooManyRequests", message: "Slow down" },
-            { status: 429 },
-          );
-        }
-        return Response.json({
-          id: "job-created",
-          operation: "APPLY",
-          lifecycleState: "ACCEPTED",
-        });
+        return Response.json(
+          { code: "TooManyRequests", message: "Slow down" },
+          { status: 429 },
+        );
       },
       sleeper: async (milliseconds) => {
         delays.push(milliseconds);
@@ -140,15 +133,17 @@ describe("OCI Resource Manager client", () => {
       random: () => 0,
     });
 
-    const result = await client.createApplyJob("stable-retry-token");
+    const error = await client
+      .createApplyJob("stable-retry-token")
+      .catch((caught: unknown) => caught);
 
-    expect(result.id).toBe("job-created");
-    expect(attempts).toBe(2);
-    expect(retryTokens).toEqual(["stable-retry-token", "stable-retry-token"]);
-    expect(delays).toEqual([1_000]);
+    expect(error).toMatchObject({ status: 429, kind: "TRANSIENT" });
+    expect(attempts).toBe(1);
+    expect(retryTokens).toEqual(["stable-retry-token"]);
+    expect(delays).toEqual([]);
   });
 
-  it("uses the OCI standard eight-attempt throttling budget", async () => {
+  it("keeps the OCI standard eight-attempt throttling budget for reads", async () => {
     let attempts = 0;
     let now = 0;
     const delays: number[] = [];
@@ -172,9 +167,7 @@ describe("OCI Resource Manager client", () => {
       random: () => 0,
     });
 
-    const error = await client
-      .createApplyJob("stable-retry-token")
-      .catch((caught: unknown) => caught);
+    const error = await client.listJobs().catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(OciApiError);
     expect(error).toMatchObject({
@@ -371,21 +364,21 @@ describe("Discord notifier", () => {
 
     expect(payload).toContain('"username":"Oracle"');
     expect(payload).toContain("A1 capacity unavailable");
-    expect(payload).toContain("A new deployment attempt has started.");
+    expect(payload).toContain("The Worker will retry automatically.");
     expect(payload).toContain('"parse":[]');
     expect(payload).not.toContain("<@");
     expect(payload).toContain('"embeds"');
   });
 
-  it("sends a status embed for an active deployment without mentions", async () => {
-    let payload = "";
+  it("keeps routine and transient outcomes quiet", async () => {
+    let calls = 0;
     const notifier = new DiscordNotifier(
       "https://discord.com/api/webhooks/test/token",
       "minecraft-server",
       "eu-stockholm-1",
       "100000000000000000",
-      async (_input, init) => {
-        payload = typeof init?.body === "string" ? init.body : "";
+      async () => {
+        calls += 1;
         return new Response(null, { status: 204 });
       },
     );
@@ -395,13 +388,16 @@ describe("Discord notifier", () => {
       jobState: "ACCEPTED",
       message: "active",
     });
+    await notifier.sendRunStatus({
+      outcome: "transient_error",
+      message: "throttled",
+    });
+    await notifier.sendRunStatus({
+      outcome: "apply_created",
+      message: "created",
+    });
 
-    expect(payload).toContain('"username":"Oracle"');
-    expect(payload).toContain("Deployment still running");
-    expect(payload).toContain("ACCEPTED");
-    expect(payload).toContain("checked automatically");
-    expect(payload).toContain('"parse":[]');
-    expect(payload).not.toContain("<@");
+    expect(calls).toBe(0);
   });
 
   it("rejects non-Discord webhook hosts", () => {
