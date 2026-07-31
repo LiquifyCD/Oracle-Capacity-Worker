@@ -26,6 +26,7 @@ export class OciApiError extends Error {
     readonly status: number,
     readonly kind: OciErrorKind,
     readonly code?: string,
+    readonly retryAfterMilliseconds?: number,
   ) {
     super(message);
     this.name = "OciApiError";
@@ -395,12 +396,14 @@ export class OciResourceManagerClient implements OciClientPort {
         continue;
       }
 
+      const requestedRetryDelay = retryAfterMilliseconds(response, this.clock());
       const payload = parseErrorPayload(await readBoundedText(response, 32 * 1024));
       throw new OciApiError(
         payload.message,
         response.status,
         errorKindForStatus(response.status),
         payload.code,
+        requestedRetryDelay > 0 ? requestedRetryDelay : undefined,
       );
     }
 

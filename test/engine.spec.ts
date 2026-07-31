@@ -286,11 +286,18 @@ describe("DeploymentEngine", () => {
 
   it("defers transient OCI errors without Discord spam", async () => {
     const { engine, oci, discord } = fixture();
-    oci.listError = new OciApiError("Service unavailable", 503, "TRANSIENT");
+    oci.listError = new OciApiError(
+      "Service unavailable",
+      503,
+      "TRANSIENT",
+      undefined,
+      900_000,
+    );
 
     const result = await engine.run("cron");
 
     expect(result.outcome).toBe("transient_error");
+    expect(result.retryAfterMilliseconds).toBe(900_000);
     expect(discord.failures).toHaveLength(0);
     expect(oci.createCalls).toHaveLength(0);
   });

@@ -337,6 +337,9 @@ export class DeploymentEngine {
         });
         return {
           outcome: "transient_error",
+          ...(error.retryAfterMilliseconds
+            ? { retryAfterMilliseconds: error.retryAfterMilliseconds }
+            : {}),
           message: `OCI transient error (${error.status}); retry deferred to the next Cron run`,
         };
       }

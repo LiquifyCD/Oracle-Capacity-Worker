@@ -32,6 +32,26 @@ describe("Worker endpoints and Cron routing", () => {
     expect(
       nextAlarmDelayMilliseconds(
         {
+          outcome: "transient_error",
+          message: "throttled",
+          retryAfterMilliseconds: 1_000,
+        },
+        schedule,
+      ),
+    ).toBe(300_000);
+    expect(
+      nextAlarmDelayMilliseconds(
+        {
+          outcome: "transient_error",
+          message: "throttled",
+          retryAfterMilliseconds: 900_000,
+        },
+        schedule,
+      ),
+    ).toBe(900_000);
+    expect(
+      nextAlarmDelayMilliseconds(
+        {
           outcome: "create_deferred",
           retryAfterMilliseconds: 42_000,
           message: "cooldown",

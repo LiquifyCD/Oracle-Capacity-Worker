@@ -27,11 +27,14 @@ export function nextAlarmDelayMilliseconds(
   result: RunResult,
   schedule: AlarmSchedule,
 ): number | null {
+  if (result.outcome === "transient_error") {
+    return Math.max(
+      schedule.transientRetryMilliseconds,
+      result.retryAfterMilliseconds ?? 0,
+    );
+  }
   if (result.retryAfterMilliseconds !== undefined) {
     return Math.max(1_000, result.retryAfterMilliseconds);
-  }
-  if (result.outcome === "transient_error") {
-    return schedule.transientRetryMilliseconds;
   }
   if (result.outcome === "lease_active") return 60_000;
   if (

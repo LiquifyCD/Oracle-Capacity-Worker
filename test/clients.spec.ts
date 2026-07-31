@@ -122,7 +122,7 @@ describe("OCI Resource Manager client", () => {
         retryTokens.push(new Headers(init?.headers).get("opc-retry-token") ?? "");
         return Response.json(
           { code: "TooManyRequests", message: "Slow down" },
-          { status: 429 },
+          { status: 429, headers: { "retry-after": "900" } },
         );
       },
       sleeper: async (milliseconds) => {
@@ -137,7 +137,11 @@ describe("OCI Resource Manager client", () => {
       .createApplyJob("stable-retry-token")
       .catch((caught: unknown) => caught);
 
-    expect(error).toMatchObject({ status: 429, kind: "TRANSIENT" });
+    expect(error).toMatchObject({
+      status: 429,
+      kind: "TRANSIENT",
+      retryAfterMilliseconds: 900_000,
+    });
     expect(attempts).toBe(1);
     expect(retryTokens).toEqual(["stable-retry-token"]);
     expect(delays).toEqual([]);

@@ -12,7 +12,7 @@
     "LEASE_SECONDS": "600",
     "JOB_POLL_SECONDS": "120",
     "TRANSIENT_RETRY_SECONDS": "300",
-    "CREATE_COOLDOWN_SECONDS": "300"
+    "CREATE_COOLDOWN_SECONDS": "1860"
   },
   "secrets": {
     "required": [
