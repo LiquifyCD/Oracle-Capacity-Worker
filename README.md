@@ -17,7 +17,7 @@ It does **not** create or modify your VCN, subnet, security lists, SSH keys, or 
 | OCI 408, 429, or 5xx | Retry silently; a throttled `CreateJob` is deferred instead of repeated immediately |
 | OCI 400, 401, 403, 404, or unexpected response | Notify once and pause |
 
-The 20-minute Cron is a recovery backstop. A Durable Object alarm checks active jobs after 2 minutes and retries transient OCI failures after at least 5 minutes. A persistent 31-minute CreateJob cooldown matches the observed OCI throttle window while avoiding the former 40-minute retry gap. Discord reports confirmed capacity failures and success; transient and routine states stay quiet.
+The 20-minute Cron is a recovery backstop. A Durable Object alarm checks active jobs after 2 minutes and retries transient OCI failures after at least 5 minutes. Apply creation has a persistent 20-minute cooldown, matching the requested retry interval. Discord reports confirmed capacity failures and success; transient and routine states stay quiet.
 
 Before every creation request, the Worker lists OCI jobs for the stack. This is the external idempotency boundary. The Durable Object adds a local execution gate, a persistent lease, and a stable OCI retry token, so overlapping Cron/manual runs and ambiguous POST timeouts do not produce duplicate Apply jobs.
 
