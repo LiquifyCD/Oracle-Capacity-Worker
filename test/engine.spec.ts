@@ -133,6 +133,15 @@ describe("DeploymentEngine", () => {
     expect(discord.statuses).toEqual(["apply_created"]);
   });
 
+  it("keeps internal alarm checks quiet in Discord", async () => {
+    const { engine, discord } = fixture();
+
+    const result = await engine.run("alarm");
+
+    expect(result.outcome).toBe("apply_created");
+    expect(discord.statuses).toEqual([]);
+  });
+
   it.each(["ACCEPTED", "IN_PROGRESS", "CANCELING"] as const)(
     "does not duplicate an active %s job",
     async (lifecycleState) => {

@@ -50,6 +50,8 @@ export interface RunResult {
   message: string;
 }
 
+export type RunTrigger = "cron" | "manual" | "alarm";
+
 export interface OciClientPort {
   listJobs(): Promise<OciJob[]>;
   getJob(jobId: string): Promise<OciJob>;

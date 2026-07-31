@@ -9,7 +9,9 @@
     "OCI_REGION": "eu-stockholm-1",
     "STACK_LABEL": "minecraft-server",
     "ERROR_COOLDOWN_SECONDS": "21600",
-    "LEASE_SECONDS": "600"
+    "LEASE_SECONDS": "600",
+    "JOB_POLL_SECONDS": "120",
+    "TRANSIENT_RETRY_SECONDS": "300"
   },
   "secrets": {
     "required": [

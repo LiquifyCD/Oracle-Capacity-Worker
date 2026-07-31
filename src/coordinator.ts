@@ -3,7 +3,7 @@ import { DiscordNotifier } from "./discord";
 import { defaultState, DeploymentEngine, RunGate } from "./engine";
 import { OciResourceManagerClient } from "./oci-client";
 import { safeLog } from "./safe-log";
-import type { AutomationState, RunResult, StatePort } from "./types";
+import type { AutomationState, RunResult, RunTrigger, StatePort } from "./types";
 
 export interface CoordinatorStatus {
   terminalSuccess: boolean;
@@ -13,7 +13,31 @@ export interface CoordinatorStatus {
   lastCapacityFailureAt?: number;
   pausedUntil?: number;
   leaseActive: boolean;
+  nextCheckAt?: number;
   updatedAt: number;
+}
+
+interface AlarmSchedule {
+  jobPollMilliseconds: number;
+  transientRetryMilliseconds: number;
+}
+
+export function nextAlarmDelayMilliseconds(
+  result: RunResult,
+  schedule: AlarmSchedule,
+): number | null {
+  if (result.outcome === "transient_error") {
+    return schedule.transientRetryMilliseconds;
+  }
+  if (result.outcome === "lease_active") return 60_000;
+  if (
+    result.outcome === "apply_created" ||
+    result.outcome === "capacity_wait" ||
+    result.outcome === "job_active"
+  ) {
+    return schedule.jobPollMilliseconds;
+  }
+  return null;
 }
 
 function positiveSeconds(value: string, name: string): number {
@@ -71,12 +95,38 @@ export class DeploymentCoordinator extends DurableObject<Env> {
     });
   }
 
-  run(trigger: "cron" | "manual"): Promise<RunResult> {
-    return this.gate.run(() => this.createEngine().run(trigger));
+  run(trigger: RunTrigger): Promise<RunResult> {
+    return this.gate.run(async () => {
+      const result = await this.createEngine().run(trigger);
+      await this.scheduleNextRun(result);
+      return result;
+    });
+  }
+
+  override async alarm(): Promise<void> {
+    try {
+      const result = await this.run("alarm");
+      safeLog("info", "alarm_completed", {
+        outcome: result.outcome,
+        state: result.jobState,
+      });
+    } catch (error) {
+      safeLog("error", "alarm_failed", {
+        message: error instanceof Error ? error.message.slice(0, 200) : "Unknown error",
+      });
+      await this.ctx.storage.setAlarm(
+        Date.now() +
+          positiveSeconds(
+            this.env.TRANSIENT_RETRY_SECONDS,
+            "TRANSIENT_RETRY_SECONDS",
+          ),
+      );
+    }
   }
 
   async status(): Promise<CoordinatorStatus> {
     const state = await this.statePort.load();
+    const nextCheckAt = await this.ctx.storage.getAlarm();
     const now = Date.now();
     return {
       terminalSuccess: state.terminalSuccess,
@@ -90,14 +140,49 @@ export class DeploymentCoordinator extends DurableObject<Env> {
         : {}),
       ...(state.pauseUntil ? { pausedUntil: state.pauseUntil } : {}),
       leaseActive: Boolean(state.leaseUntil && state.leaseUntil > now),
+      ...(nextCheckAt ? { nextCheckAt } : {}),
       updatedAt: state.updatedAt,
     };
   }
 
   async reset(): Promise<CoordinatorStatus> {
+    await this.ctx.storage.deleteAlarm();
     await this.statePort.save(defaultState(Date.now()));
     safeLog("warn", "coordinator_reset");
     return this.status();
+  }
+
+  private async scheduleNextRun(result: RunResult): Promise<void> {
+    let delay = nextAlarmDelayMilliseconds(result, {
+      jobPollMilliseconds: positiveSeconds(
+        this.env.JOB_POLL_SECONDS,
+        "JOB_POLL_SECONDS",
+      ),
+      transientRetryMilliseconds: positiveSeconds(
+        this.env.TRANSIENT_RETRY_SECONDS,
+        "TRANSIENT_RETRY_SECONDS",
+      ),
+    });
+
+    if (result.outcome === "terminal_success") {
+      const state = await this.statePort.load();
+      if (!state.successNotified) {
+        delay = positiveSeconds(this.env.JOB_POLL_SECONDS, "JOB_POLL_SECONDS");
+      }
+    }
+
+    if (delay === null) {
+      await this.ctx.storage.deleteAlarm();
+      return;
+    }
+
+    const scheduledAt = Date.now() + delay;
+    await this.ctx.storage.setAlarm(scheduledAt);
+    safeLog("info", "alarm_scheduled", {
+      outcome: result.outcome,
+      delayMilliseconds: delay,
+      scheduledAt,
+    });
   }
 
   private createEngine(): DeploymentEngine {

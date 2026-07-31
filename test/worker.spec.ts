@@ -7,9 +7,36 @@ import {
 } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import worker from "../src/index";
+import { nextAlarmDelayMilliseconds } from "../src/coordinator";
 import type { AutomationState } from "../src/types";
 
 describe("Worker endpoints and Cron routing", () => {
+  it("uses fast alarms while keeping Cron as a backup", () => {
+    const schedule = {
+      jobPollMilliseconds: 120_000,
+      transientRetryMilliseconds: 300_000,
+    };
+
+    expect(
+      nextAlarmDelayMilliseconds(
+        { outcome: "apply_created", message: "created" },
+        schedule,
+      ),
+    ).toBe(120_000);
+    expect(
+      nextAlarmDelayMilliseconds(
+        { outcome: "transient_error", message: "throttled" },
+        schedule,
+      ),
+    ).toBe(300_000);
+    expect(
+      nextAlarmDelayMilliseconds(
+        { outcome: "meaningful_error", message: "paused" },
+        schedule,
+      ),
+    ).toBeNull();
+  });
+
   it("returns a secret-free health response", async () => {
     const response = await exports.default.fetch("https://worker.test/health");
     const body = await response.text();
@@ -57,6 +84,7 @@ describe("Worker endpoints and Cron routing", () => {
          ON CONFLICT(id) DO UPDATE SET json = excluded.json`,
         JSON.stringify(terminal),
       );
+      state.storage.setAlarm(Date.now() + 60_000);
     });
     const controller = createScheduledController({
       cron: "*/20 * * * *",
@@ -70,5 +98,6 @@ describe("Worker endpoints and Cron routing", () => {
 
     expect(status.terminalSuccess).toBe(true);
     expect(status.retryCount).toBe(4);
+    expect(status.nextCheckAt).toBeUndefined();
   });
 });

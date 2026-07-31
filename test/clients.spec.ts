@@ -399,7 +399,7 @@ describe("Discord notifier", () => {
     expect(payload).toContain('"username":"Oracle"');
     expect(payload).toContain("Deployment still running");
     expect(payload).toContain("ACCEPTED");
-    expect(payload).toContain("20 minutes");
+    expect(payload).toContain("checked automatically");
     expect(payload).toContain('"parse":[]');
     expect(payload).not.toContain("<@");
   });

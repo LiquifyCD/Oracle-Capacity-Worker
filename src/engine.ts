@@ -7,6 +7,7 @@ import type {
   OciClientPort,
   OciJob,
   RunResult,
+  RunTrigger,
   StatePort,
 } from "./types";
 
@@ -71,7 +72,7 @@ export class DeploymentEngine {
     this.uuid = options.uuid ?? (() => crypto.randomUUID());
   }
 
-  async run(trigger: "cron" | "manual"): Promise<RunResult> {
+  async run(trigger: RunTrigger): Promise<RunResult> {
     const now = this.now();
     const state = await this.statePort.load();
 
@@ -106,7 +107,7 @@ export class DeploymentEngine {
       state.updatedAt = this.now();
       await this.statePort.save(state);
     }
-    await this.notifyRunStatus(result);
+    if (trigger !== "alarm") await this.notifyRunStatus(result);
     return result;
   }
 

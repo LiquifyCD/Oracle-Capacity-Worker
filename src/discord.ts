@@ -77,7 +77,7 @@ export class DiscordNotifier implements DiscordPort {
     > = {
       apply_created: {
         title: "Deployment attempt started",
-        description: "OCI accepted a new Apply job. It will be checked again in 20 minutes.",
+        description: "OCI accepted a new Apply job. It will be checked automatically.",
         color: 0x3498db,
       },
       capacity_wait: {
@@ -87,7 +87,7 @@ export class DiscordNotifier implements DiscordPort {
       },
       job_active: {
         title: "Deployment still running",
-        description: `The OCI Apply job is ${result.jobState ?? "active"}. It will be checked again in 20 minutes.`,
+        description: `The OCI Apply job is ${result.jobState ?? "active"}. It will be checked automatically.`,
         color: 0x3498db,
       },
       paused: {
@@ -97,7 +97,7 @@ export class DiscordNotifier implements DiscordPort {
       },
       transient_error: {
         title: "Temporary OCI error",
-        description: "The check could not finish. It will retry in 20 minutes.",
+        description: "The check could not finish. It will retry automatically.",
         color: 0xf59e0b,
       },
       lease_active: {
