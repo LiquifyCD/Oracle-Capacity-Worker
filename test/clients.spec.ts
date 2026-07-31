@@ -109,6 +109,7 @@ describe("OCI Resource Manager client", () => {
 
   it("retries a throttled Apply with the same OCI retry token", async () => {
     let attempts = 0;
+    let now = 0;
     const retryTokens: string[] = [];
     const delays: number[] = [];
     const client = new OciResourceManagerClient({
@@ -133,7 +134,10 @@ describe("OCI Resource Manager client", () => {
       },
       sleeper: async (milliseconds) => {
         delays.push(milliseconds);
+        now += milliseconds;
       },
+      clock: () => now,
+      random: () => 0,
     });
 
     const result = await client.createApplyJob("stable-retry-token");
@@ -141,11 +145,12 @@ describe("OCI Resource Manager client", () => {
     expect(result.id).toBe("job-created");
     expect(attempts).toBe(2);
     expect(retryTokens).toEqual(["stable-retry-token", "stable-retry-token"]);
-    expect(delays).toEqual([2_000]);
+    expect(delays).toEqual([1_000]);
   });
 
-  it("stops after three throttled OCI attempts", async () => {
+  it("uses the OCI standard eight-attempt throttling budget", async () => {
     let attempts = 0;
+    let now = 0;
     const delays: number[] = [];
     const client = new OciResourceManagerClient({
       region: "eu-stockholm-1",
@@ -161,7 +166,10 @@ describe("OCI Resource Manager client", () => {
       },
       sleeper: async (milliseconds) => {
         delays.push(milliseconds);
+        now += milliseconds;
       },
+      clock: () => now,
+      random: () => 0,
     });
 
     const error = await client
@@ -174,8 +182,46 @@ describe("OCI Resource Manager client", () => {
       kind: "TRANSIENT",
       code: "TooManyRequests",
     });
-    expect(attempts).toBe(3);
-    expect(delays).toEqual([2_000, 4_000]);
+    expect(attempts).toBe(8);
+    expect(delays).toEqual([
+      1_000,
+      2_000,
+      4_000,
+      8_000,
+      16_000,
+      30_000,
+      30_000,
+    ]);
+  });
+
+  it("paces consecutive OCI requests at least one second apart", async () => {
+    let now = 0;
+    const delays: number[] = [];
+    const client = new OciResourceManagerClient({
+      region: "eu-stockholm-1",
+      stackId: "stack-test",
+      stackLabel: "minecraft-server",
+      credentials: await credentials(),
+      fetcher: async (_input, init) =>
+        init?.method === "POST"
+          ? Response.json({
+              id: "job-created",
+              operation: "APPLY",
+              lifecycleState: "ACCEPTED",
+            })
+          : Response.json([]),
+      sleeper: async (milliseconds) => {
+        delays.push(milliseconds);
+        now += milliseconds;
+      },
+      clock: () => now,
+      random: () => 0,
+    });
+
+    await client.listJobs();
+    await client.createApplyJob("stable-retry-token");
+
+    expect(delays).toEqual([1_000]);
   });
 
   it("classifies OCI permission failures without returning the response body", async () => {
@@ -353,6 +399,7 @@ describe("Discord notifier", () => {
     expect(payload).toContain('"username":"Oracle"');
     expect(payload).toContain("Deployment still running");
     expect(payload).toContain("ACCEPTED");
+    expect(payload).toContain("20 minutes");
     expect(payload).toContain('"parse":[]');
     expect(payload).not.toContain("<@");
   });

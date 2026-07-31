@@ -42,7 +42,15 @@ export interface OciClientConfig {
     init?: RequestInit,
   ) => Promise<Response>;
   sleeper?: (milliseconds: number) => Promise<void>;
+  clock?: () => number;
+  random?: () => number;
+  minimumRequestIntervalMilliseconds?: number;
 }
+
+const MAXIMUM_ATTEMPTS = 8;
+const BASE_RETRY_DELAY_MILLISECONDS = 1_000;
+const MAX_RETRY_DELAY_MILLISECONDS = 30_000;
+const DEFAULT_REQUEST_INTERVAL_MILLISECONDS = 1_000;
 
 interface RawJob {
   id?: unknown;
@@ -143,14 +151,33 @@ function isRetryableStatus(status: number): boolean {
   return status === 408 || status === 429 || status >= 500;
 }
 
-function retryDelayMilliseconds(response: Response, attempt: number): number {
-  const exponentialDelay = 2_000 * 2 ** (attempt - 1);
-  const retryAfterSeconds = Number(response.headers.get("retry-after"));
-  const requestedDelay =
-    Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0
-      ? retryAfterSeconds * 1_000
-      : 0;
-  return Math.min(Math.max(exponentialDelay, requestedDelay), 10_000);
+function retryAfterMilliseconds(response: Response, now: number): number {
+  const value = response.headers.get("retry-after");
+  if (!value) return 0;
+
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1_000;
+
+  const date = Date.parse(value);
+  return Number.isFinite(date) ? Math.max(0, date - now) : 0;
+}
+
+function retryDelayMilliseconds(
+  response: Response | undefined,
+  attempt: number,
+  now: number,
+  random: () => number,
+): number {
+  const exponentialDelay = Math.min(
+    BASE_RETRY_DELAY_MILLISECONDS * 2 ** (attempt - 1),
+    MAX_RETRY_DELAY_MILLISECONDS,
+  );
+  const jitter = Math.floor(random() * 1_001);
+  const requestedDelay = response ? retryAfterMilliseconds(response, now) : 0;
+  return Math.min(
+    Math.max(exponentialDelay + jitter, requestedDelay),
+    MAX_RETRY_DELAY_MILLISECONDS,
+  );
 }
 
 function parseErrorPayload(text: string): { code?: string; message: string } {
@@ -179,6 +206,10 @@ export class OciResourceManagerClient implements OciClientPort {
     init?: RequestInit,
   ) => Promise<Response>;
   private readonly sleeper: (milliseconds: number) => Promise<void>;
+  private readonly clock: () => number;
+  private readonly random: () => number;
+  private readonly minimumRequestIntervalMilliseconds: number;
+  private nextRequestAt = 0;
 
   constructor(private readonly config: OciClientConfig) {
     assertRegion(config.region);
@@ -190,6 +221,17 @@ export class OciResourceManagerClient implements OciClientPort {
         new Promise((resolve) => {
           setTimeout(resolve, milliseconds);
         }));
+    this.clock = config.clock ?? (() => Date.now());
+    this.random = config.random ?? (() => Math.random());
+    this.minimumRequestIntervalMilliseconds =
+      config.minimumRequestIntervalMilliseconds ??
+      DEFAULT_REQUEST_INTERVAL_MILLISECONDS;
+    if (
+      !Number.isFinite(this.minimumRequestIntervalMilliseconds) ||
+      this.minimumRequestIntervalMilliseconds < 0
+    ) {
+      throw new Error("minimumRequestIntervalMilliseconds must be non-negative");
+    }
   }
 
   async listJobs(): Promise<OciJob[]> {
@@ -269,9 +311,8 @@ export class OciResourceManagerClient implements OciClientPort {
     body?: string,
     extraHeaders?: Record<string, string>,
   ): Promise<Response> {
-    const maximumAttempts = 3;
-
-    for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
+    for (let attempt = 1; attempt <= MAXIMUM_ATTEMPTS; attempt += 1) {
+      await this.waitForRequestSlot();
       const headers = await signOciRequest(
         {
           method,
@@ -291,10 +332,15 @@ export class OciResourceManagerClient implements OciClientPort {
           redirect: "manual",
         });
       } catch {
-        if (attempt === maximumAttempts) {
+        if (attempt === MAXIMUM_ATTEMPTS) {
           throw new OciApiError("OCI network request failed", 0, "TRANSIENT");
         }
-        const delayMilliseconds = 2_000 * 2 ** (attempt - 1);
+        const delayMilliseconds = retryDelayMilliseconds(
+          undefined,
+          attempt,
+          this.clock(),
+          this.random,
+        );
         safeLog("warn", "oci_retry_scheduled", {
           method,
           status: 0,
@@ -315,8 +361,13 @@ export class OciResourceManagerClient implements OciClientPort {
 
       if (response.ok) return response;
 
-      if (isRetryableStatus(response.status) && attempt < maximumAttempts) {
-        const delayMilliseconds = retryDelayMilliseconds(response, attempt);
+      if (isRetryableStatus(response.status) && attempt < MAXIMUM_ATTEMPTS) {
+        const delayMilliseconds = retryDelayMilliseconds(
+          response,
+          attempt,
+          this.clock(),
+          this.random,
+        );
         await response.body?.cancel().catch(() => undefined);
         safeLog("warn", "oci_retry_scheduled", {
           method,
@@ -339,5 +390,11 @@ export class OciResourceManagerClient implements OciClientPort {
     }
 
     throw new OciApiError("OCI request retry limit reached", 0, "TRANSIENT");
+  }
+
+  private async waitForRequestSlot(): Promise<void> {
+    const delayMilliseconds = Math.max(0, this.nextRequestAt - this.clock());
+    if (delayMilliseconds > 0) await this.sleeper(delayMilliseconds);
+    this.nextRequestAt = this.clock() + this.minimumRequestIntervalMilliseconds;
   }
 }

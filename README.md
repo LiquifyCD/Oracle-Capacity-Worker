@@ -14,12 +14,14 @@ It does **not** create or modify your VCN, subnet, security lists, SSH keys, or 
 | Other `FAILED` state | Send one Discord warning per distinct error and pause for 6 hours |
 | `CANCELED` | Create a new Apply job |
 | `SUCCEEDED` | Persist terminal success, notify Discord once, and stop creating jobs |
-| OCI 408, 429, or 5xx | Report the temporary error and retry on the next Cron run |
+| OCI 408, 429, or 5xx | Retry with OCI-compatible exponential backoff; report a temporary error only if all attempts fail |
 | OCI 400, 401, 403, 404, or unexpected response | Notify once and pause |
 
 Every scheduled check reports one concise Discord status until deployment succeeds. Success sends one final user mention and then remains quiet.
 
 Before every creation request, the Worker lists OCI jobs for the stack. This is the external idempotency boundary. The Durable Object adds a local execution gate, a persistent lease, and a stable OCI retry token, so overlapping Cron/manual runs and ambiguous POST timeouts do not produce duplicate Apply jobs.
+
+OCI requests are paced at least one second apart. Retryable failures use eight total attempts, exponential backoff from one second, 0-1000 ms jitter, a 30-second per-delay cap, and the server's `Retry-After` header when present.
 
 ## Project layout
 
@@ -98,7 +100,7 @@ npm.cmd run cf-typegen
 npm.cmd run verify
 ```
 
-`verify` performs generated-type validation, strict TypeScript checking, 33 mocked tests, a Wrangler dry run, and Worker startup profiling. `test/fixtures/verify-secrets.env` contains invalid test-only placeholders; it cannot authenticate to OCI or Discord.
+`verify` performs generated-type validation, strict TypeScript checking, 37 mocked tests, a Wrangler dry run, and Worker startup profiling. `test/fixtures/verify-secrets.env` contains invalid test-only placeholders; it cannot authenticate to OCI or Discord.
 
 To run only the mocked scheduled/endpoint tests:
 
