@@ -35,12 +35,8 @@ export default {
     env: Env,
     _ctx: ExecutionContext,
   ): Promise<void> {
-    const result = await coordinator(env).run("cron");
-    safeLog("info", "cron_completed", {
-      cron: controller.cron,
-      outcome: result.outcome,
-      state: result.jobState,
-    });
+    await coordinator(env).disableAutomation();
+    safeLog("info", "cron_ignored_automation_disabled", { cron: controller.cron });
   },
 
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -51,13 +47,21 @@ export default {
 
     if (
       request.method === "POST" &&
-      (url.pathname === "/run" || url.pathname === "/reset" || url.pathname === "/notify")
+      (url.pathname === "/run" ||
+        url.pathname === "/reset" ||
+        url.pathname === "/notify" ||
+        url.pathname === "/disable-automation")
     ) {
-      const expectedToken = url.pathname === "/notify" ? env.NOTIFY_TOKEN : env.ADMIN_TOKEN;
+      const notifierPath = url.pathname === "/notify" || url.pathname === "/disable-automation";
+      const expectedToken = notifierPath ? env.NOTIFY_TOKEN : env.ADMIN_TOKEN;
       if (!(await authorized(request, expectedToken))) {
         return json({ error: "Unauthorized" }, 401);
       }
+      if (url.pathname === "/disable-automation") {
+        return json(await coordinator(env).disableAutomation());
+      }
       if (url.pathname === "/notify") {
+        await coordinator(env).disableAutomation();
         let body: { event?: unknown; content?: unknown; metrics?: unknown };
         try {
           body = await request.json();
@@ -112,7 +116,7 @@ export default {
       if (url.pathname === "/reset") {
         return json(await coordinator(env).reset());
       }
-      return json(await coordinator(env).run("manual"));
+      return json({ error: "Cloudflare claim automation is disabled" }, 409);
     }
 
     return json({ error: "Not found" }, 404);

@@ -111,24 +111,14 @@ export class DeploymentCoordinator extends DurableObject<Env> {
   }
 
   override async alarm(): Promise<void> {
-    try {
-      const result = await this.run("alarm");
-      safeLog("info", "alarm_completed", {
-        outcome: result.outcome,
-        state: result.jobState,
-      });
-    } catch (error) {
-      safeLog("error", "alarm_failed", {
-        message: error instanceof Error ? error.message.slice(0, 200) : "Unknown error",
-      });
-      await this.ctx.storage.setAlarm(
-        Date.now() +
-          positiveSeconds(
-            this.env.TRANSIENT_RETRY_SECONDS,
-            "TRANSIENT_RETRY_SECONDS",
-          ),
-      );
-    }
+    await this.ctx.storage.deleteAlarm();
+    safeLog("info", "alarm_discarded_automation_disabled");
+  }
+
+  async disableAutomation(): Promise<CoordinatorStatus> {
+    await this.ctx.storage.deleteAlarm();
+    safeLog("warn", "claim_automation_disabled");
+    return this.status();
   }
 
   async status(): Promise<CoordinatorStatus> {

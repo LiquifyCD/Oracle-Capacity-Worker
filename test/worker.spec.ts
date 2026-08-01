@@ -11,7 +11,7 @@ import { nextAlarmDelayMilliseconds } from "../src/coordinator";
 import type { AutomationState } from "../src/types";
 
 describe("Worker endpoints and Cron routing", () => {
-  it("uses fast alarms while keeping Cron as a backup", () => {
+  it("retains deterministic delay calculations for legacy state", () => {
     const schedule = {
       jobPollMilliseconds: 120_000,
       transientRetryMilliseconds: 300_000,
@@ -86,6 +86,15 @@ describe("Worker endpoints and Cron routing", () => {
     expect(response.status).toBe(401);
   });
 
+  it("refuses authorized Cloudflare claim execution", async () => {
+    const response = await exports.default.fetch("https://worker.test/run", {
+      method: "POST",
+      headers: { authorization: "Bearer test-admin-token" },
+    });
+
+    expect(response.status).toBe(409);
+  });
+
   it("rejects malformed checker metrics before posting to Discord", async () => {
     const response = await exports.default.fetch("https://worker.test/notify", {
       method: "POST",
@@ -114,7 +123,7 @@ describe("Worker endpoints and Cron routing", () => {
     expect(await response.json()).toMatchObject({ terminalSuccess: false });
   });
 
-  it("routes a scheduled event through the coordinator without retrying after success", async () => {
+  it("discards a legacy alarm when a scheduled event arrives", async () => {
     const stub = env.DEPLOYMENT_COORDINATOR.getByName("primary");
     await runInDurableObject(stub, (_instance, state) => {
       const terminal: AutomationState = {
