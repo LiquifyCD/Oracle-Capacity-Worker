@@ -19,6 +19,19 @@ async function readShortError(response: Response): Promise<string> {
   return new TextDecoder().decode(part.value.subarray(0, 2048));
 }
 
+export interface CheckerMetrics {
+  checksRun: number;
+  ramPercent: number;
+  cpuPercent: number;
+  pollIntervalSeconds: number;
+}
+
+function usageBar(percent: number): string {
+  const value = Math.max(0, Math.min(100, percent));
+  const filled = Math.round(value / 10);
+  return `\`${"█".repeat(filled)}${"░".repeat(10 - filled)}\` **${value.toFixed(1)}%**`;
+}
+
 export class DiscordNotifier implements DiscordPort {
   constructor(
     private readonly webhookUrl: string,
@@ -94,22 +107,53 @@ export class DiscordNotifier implements DiscordPort {
   async sendCheckerEvent(
     event: "heartbeat" | "status" | "failure" | "success",
     summary: string,
+    metrics?: CheckerMetrics,
   ): Promise<void> {
+    if (event === "heartbeat" && metrics) {
+      await this.send({
+        title: "🟣 Oracle A1 Capacity Watcher",
+        description: "**Online and checking**\nNo A1 capacity is available yet. Automatic checks continue in the background.",
+        color: 0x8b5cf6,
+        fields: [
+          { name: "🔎 Capacity checks", value: `**${metrics.checksRun.toLocaleString("en-US")}**`, inline: true },
+          { name: "⏱️ Check interval", value: `**${metrics.pollIntervalSeconds}s**`, inline: true },
+          { name: "📍 Region", value: `\`${sanitize(this.region)}\``, inline: true },
+          { name: "🧠 RAM usage", value: usageBar(metrics.ramPercent), inline: false },
+          { name: "⚙️ CPU usage", value: usageBar(metrics.cpuPercent), inline: false },
+        ],
+        footer: { text: "Automatic claim is armed • Hourly status" },
+      });
+      return;
+    }
+
     const presentation = {
-      heartbeat: { title: "A1 checker is active", color: 0x5865f2 },
-      status: { title: "A1 capacity detected", color: 0x3498db },
-      failure: { title: "A1 claim attempt failed", color: 0xe67e22 },
-      success: { title: "OCI A1 claim succeeded", color: 0x2ecc71 },
+      heartbeat: { title: "🟣 A1 checker is active", color: 0x8b5cf6 },
+      status: { title: "🔵 A1 capacity detected", color: 0x3498db },
+      failure: { title: "🟠 A1 claim attempt failed", color: 0xe67e22 },
+      success: { title: "✅ OCI A1 instance claimed", color: 0x2ecc71 },
     }[event];
+    const fields = [
+      { name: "Stack", value: sanitize(this.stackLabel), inline: true },
+      { name: "Region", value: sanitize(this.region), inline: true },
+    ];
+    if (event === "success" && metrics) {
+      fields.push(
+        { name: "Capacity checks", value: metrics.checksRun.toLocaleString("en-US"), inline: true },
+        { name: "RAM at success", value: `${metrics.ramPercent.toFixed(1)}%`, inline: true },
+        { name: "CPU at success", value: `${metrics.cpuPercent.toFixed(1)}%`, inline: true },
+      );
+    }
     await this.send(
       {
         title: presentation.title,
-        description: sanitize(summary),
+        description: event === "success"
+          ? "The A1 instance is running. Automatic claim attempts have stopped."
+          : sanitize(summary),
         color: presentation.color,
-        fields: [
-          { name: "Stack", value: sanitize(this.stackLabel), inline: true },
-          { name: "Region", value: sanitize(this.region), inline: true },
-        ],
+        fields,
+        ...(event === "success"
+          ? { footer: { text: "Deployment verified successfully" } }
+          : {}),
       },
       event === "success",
     );
@@ -120,6 +164,7 @@ export class DiscordNotifier implements DiscordPort {
     description: string;
     color: number;
     fields: Array<{ name: string; value: string; inline: boolean }>;
+    footer?: { text: string };
   }, mentionSuccessUser = false): Promise<void> {
     const content = mentionSuccessUser ? `<@${this.successUserId}>` : undefined;
     await this.post({

@@ -1,5 +1,5 @@
 import { safeLog } from "./safe-log";
-import { DiscordNotifier } from "./discord";
+import { DiscordNotifier, type CheckerMetrics } from "./discord";
 
 export { DeploymentCoordinator } from "./coordinator";
 
@@ -58,7 +58,7 @@ export default {
         return json({ error: "Unauthorized" }, 401);
       }
       if (url.pathname === "/notify") {
-        let body: { event?: unknown; content?: unknown };
+        let body: { event?: unknown; content?: unknown; metrics?: unknown };
         try {
           body = await request.json();
         } catch {
@@ -73,6 +73,29 @@ export default {
         ) {
           return json({ error: "Invalid notification" }, 400);
         }
+        let metrics: CheckerMetrics | undefined;
+        if (body.metrics !== undefined) {
+          const candidate = body.metrics as Partial<CheckerMetrics>;
+          if (
+            typeof candidate !== "object" ||
+            candidate === null ||
+            !Number.isSafeInteger(candidate.checksRun) ||
+            (candidate.checksRun ?? -1) < 0 ||
+            typeof candidate.ramPercent !== "number" ||
+            !Number.isFinite(candidate.ramPercent) ||
+            candidate.ramPercent < 0 ||
+            candidate.ramPercent > 100 ||
+            typeof candidate.cpuPercent !== "number" ||
+            !Number.isFinite(candidate.cpuPercent) ||
+            candidate.cpuPercent < 0 ||
+            candidate.cpuPercent > 100 ||
+            !Number.isSafeInteger(candidate.pollIntervalSeconds) ||
+            (candidate.pollIntervalSeconds ?? 0) < 30
+          ) {
+            return json({ error: "Invalid metrics" }, 400);
+          }
+          metrics = candidate as CheckerMetrics;
+        }
         const notifier = new DiscordNotifier(
           env.DISCORD_WEBHOOK_URL,
           env.STACK_LABEL,
@@ -82,6 +105,7 @@ export default {
         await notifier.sendCheckerEvent(
           body.event as (typeof events)[number],
           body.content,
+          metrics,
         );
         return json({ ok: true });
       }

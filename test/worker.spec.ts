@@ -86,6 +86,24 @@ describe("Worker endpoints and Cron routing", () => {
     expect(response.status).toBe(401);
   });
 
+  it("rejects malformed checker metrics before posting to Discord", async () => {
+    const response = await exports.default.fetch("https://worker.test/notify", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer test-notify-token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        event: "heartbeat",
+        content: "online",
+        metrics: { checksRun: 1, ramPercent: 101, cpuPercent: 2, pollIntervalSeconds: 30 },
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "Invalid metrics" });
+  });
+
   it("allows an authorized reset", async () => {
     const response = await exports.default.fetch("https://worker.test/reset", {
       method: "POST",

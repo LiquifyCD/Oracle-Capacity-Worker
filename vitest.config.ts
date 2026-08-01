@@ -15,6 +15,7 @@ export default defineConfig({
           DISCORD_WEBHOOK_URL: "https://discord.com/api/webhooks/test/test",
           DISCORD_SUCCESS_USER_ID: "100000000000000000",
           ADMIN_TOKEN: "test-admin-token",
+          NOTIFY_TOKEN: "test-notify-token",
         },
       },
     }),

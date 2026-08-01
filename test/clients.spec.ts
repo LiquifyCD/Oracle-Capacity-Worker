@@ -417,12 +417,23 @@ describe("Discord notifier", () => {
       },
     );
 
-    await notifier.sendCheckerEvent("heartbeat", "Still checking");
-    await notifier.sendCheckerEvent("success", "A1 is running");
+    const metrics = {
+      checksRun: 1234,
+      ramPercent: 69.3,
+      cpuPercent: 18,
+      pollIntervalSeconds: 30,
+    };
+    await notifier.sendCheckerEvent("heartbeat", "Still checking", metrics);
+    await notifier.sendCheckerEvent("success", "A1 is running", metrics);
 
-    expect(payloads[0]).toContain("A1 checker is active");
+    expect(payloads[0]).toContain("Oracle A1 Capacity Watcher");
+    expect(payloads[0]).toContain("1,234");
+    expect(payloads[0]).toContain("69.3%");
+    expect(payloads[0]).toContain("18.0%");
+    expect(payloads[0]).toContain("Automatic claim is armed");
     expect(payloads[0]).not.toContain("<@");
-    expect(payloads[1]).toContain("OCI A1 claim succeeded");
+    expect(payloads[1]).toContain("OCI A1 instance claimed");
+    expect(payloads[1]).toContain("Automatic claim attempts have stopped");
     expect(payloads[1]).toContain('"content":"<@100000000000000000>"');
   });
 
