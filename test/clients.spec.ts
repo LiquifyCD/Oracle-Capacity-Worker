@@ -436,7 +436,7 @@ describe("Discord notifier", () => {
     expect(payloads[0]).toContain("1,234");
     expect(payloads[0]).toContain("69.3%");
     expect(payloads[0]).toContain("18.0%");
-    expect(payloads[0]).toContain("Status every 15 minutes");
+    expect(payloads[0]).toContain("Live status every 30 seconds");
     expect(payloads[0]).not.toContain("<@");
     expect(messageId).toBe("123456789012345678");
     expect(requests[0]).toEqual({ method: "POST", url: "https://discord.com/api/webhooks/test/token?wait=true" });

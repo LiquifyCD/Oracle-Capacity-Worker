@@ -122,7 +122,7 @@ export class DiscordNotifier implements DiscordPort {
           { name: "🧠 RAM usage", value: usageBar(metrics.ramPercent), inline: false },
           { name: "⚙️ CPU usage", value: usageBar(metrics.cpuPercent), inline: false },
         ],
-        footer: { text: "Automatic claim is armed • Status every 15 minutes" },
+        footer: { text: "Automatic claim is armed • Live status every 30 seconds" },
       }, statusMessageId);
     }
 
