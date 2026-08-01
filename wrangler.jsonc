@@ -23,7 +23,8 @@
       "OCI_STACK_OCID",
       "DISCORD_WEBHOOK_URL",
       "DISCORD_SUCCESS_USER_ID",
-      "ADMIN_TOKEN"
+      "ADMIN_TOKEN",
+      "NOTIFY_TOKEN"
     ]
   },
   "durable_objects": {

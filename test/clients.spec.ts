@@ -404,6 +404,28 @@ describe("Discord notifier", () => {
     expect(calls).toBe(0);
   });
 
+  it("sends hourly checker updates without a mention and success with a ping", async () => {
+    const payloads: string[] = [];
+    const notifier = new DiscordNotifier(
+      "https://discord.com/api/webhooks/test/token",
+      "minecraft-server",
+      "eu-stockholm-1",
+      "100000000000000000",
+      async (_input, init) => {
+        payloads.push(typeof init?.body === "string" ? init.body : "");
+        return new Response(null, { status: 204 });
+      },
+    );
+
+    await notifier.sendCheckerEvent("heartbeat", "Still checking");
+    await notifier.sendCheckerEvent("success", "A1 is running");
+
+    expect(payloads[0]).toContain("A1 checker is active");
+    expect(payloads[0]).not.toContain("<@");
+    expect(payloads[1]).toContain("OCI A1 claim succeeded");
+    expect(payloads[1]).toContain('"content":"<@100000000000000000>"');
+  });
+
   it("rejects non-Discord webhook hosts", () => {
     expect(
       () =>

@@ -91,6 +91,30 @@ export class DiscordNotifier implements DiscordPort {
     });
   }
 
+  async sendCheckerEvent(
+    event: "heartbeat" | "status" | "failure" | "success",
+    summary: string,
+  ): Promise<void> {
+    const presentation = {
+      heartbeat: { title: "A1 checker is active", color: 0x5865f2 },
+      status: { title: "A1 capacity detected", color: 0x3498db },
+      failure: { title: "A1 claim attempt failed", color: 0xe67e22 },
+      success: { title: "OCI A1 claim succeeded", color: 0x2ecc71 },
+    }[event];
+    await this.send(
+      {
+        title: presentation.title,
+        description: sanitize(summary),
+        color: presentation.color,
+        fields: [
+          { name: "Stack", value: sanitize(this.stackLabel), inline: true },
+          { name: "Region", value: sanitize(this.region), inline: true },
+        ],
+      },
+      event === "success",
+    );
+  }
+
   private async send(embed: {
     title: string;
     description: string;
