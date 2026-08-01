@@ -404,16 +404,21 @@ describe("Discord notifier", () => {
     expect(calls).toBe(0);
   });
 
-  it("sends hourly checker updates without a mention and success with a ping", async () => {
+  it("creates one checker status message, edits it, and keeps success as a separate ping", async () => {
     const payloads: string[] = [];
+    const requests: Array<{ method: string; url: string }> = [];
     const notifier = new DiscordNotifier(
       "https://discord.com/api/webhooks/test/token",
       "minecraft-server",
       "eu-stockholm-1",
       "100000000000000000",
-      async (_input, init) => {
+      async (input, init) => {
         payloads.push(typeof init?.body === "string" ? init.body : "");
-        return new Response(null, { status: 204 });
+        requests.push({ method: init?.method ?? "GET", url: String(input) });
+        if (init?.method === "POST" && String(input).includes("wait=true")) {
+          return Response.json({ id: "123456789012345678" });
+        }
+        return new Response(null, { status: init?.method === "PATCH" ? 200 : 204 });
       },
     );
 
@@ -423,18 +428,45 @@ describe("Discord notifier", () => {
       cpuPercent: 18,
       pollIntervalSeconds: 30,
     };
-    await notifier.sendCheckerEvent("heartbeat", "Still checking", metrics);
+    const messageId = await notifier.sendCheckerEvent("heartbeat", "Still checking", metrics);
+    await notifier.sendCheckerEvent("heartbeat", "Still checking", metrics, messageId);
     await notifier.sendCheckerEvent("success", "A1 is running", metrics);
 
     expect(payloads[0]).toContain("Oracle A1 Capacity Watcher");
     expect(payloads[0]).toContain("1,234");
     expect(payloads[0]).toContain("69.3%");
     expect(payloads[0]).toContain("18.0%");
-    expect(payloads[0]).toContain("Automatic claim is armed");
+    expect(payloads[0]).toContain("Status every 15 minutes");
     expect(payloads[0]).not.toContain("<@");
-    expect(payloads[1]).toContain("OCI A1 instance claimed");
-    expect(payloads[1]).toContain("Automatic claim attempts have stopped");
-    expect(payloads[1]).toContain('"content":"<@100000000000000000>"');
+    expect(messageId).toBe("123456789012345678");
+    expect(requests[0]).toEqual({ method: "POST", url: "https://discord.com/api/webhooks/test/token?wait=true" });
+    expect(requests[1]).toEqual({ method: "PATCH", url: "https://discord.com/api/webhooks/test/token/messages/123456789012345678" });
+    expect(payloads[2]).toContain("OCI A1 instance claimed");
+    expect(payloads[2]).toContain("Automatic claim attempts have stopped");
+    expect(payloads[2]).toContain('"content":"<@100000000000000000>"');
+  });
+
+  it("recreates the checker status message if the saved Discord message was deleted", async () => {
+    const methods: string[] = [];
+    const notifier = new DiscordNotifier(
+      "https://discord.com/api/webhooks/test/token",
+      "minecraft-server",
+      "eu-stockholm-1",
+      "100000000000000000",
+      async (_input, init) => {
+        methods.push(init?.method ?? "GET");
+        if (init?.method === "PATCH") return new Response("unknown message", { status: 404 });
+        return Response.json({ id: "223456789012345678" });
+      },
+    );
+    const id = await notifier.sendCheckerEvent("heartbeat", "Still checking", {
+      checksRun: 10,
+      ramPercent: 20,
+      cpuPercent: 5,
+      pollIntervalSeconds: 30,
+    }, "123456789012345678");
+    expect(methods).toEqual(["PATCH", "POST"]);
+    expect(id).toBe("223456789012345678");
   });
 
   it("rejects non-Discord webhook hosts", () => {

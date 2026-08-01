@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { DiscordNotifier } from "./discord";
+import { DiscordNotifier, type CheckerMetrics } from "./discord";
 import { defaultState, DeploymentEngine, RunGate } from "./engine";
 import { OciResourceManagerClient } from "./oci-client";
 import { safeLog } from "./safe-log";
@@ -99,6 +99,12 @@ export class DeploymentCoordinator extends DurableObject<Env> {
           json TEXT NOT NULL
         )`,
       );
+      this.ctx.storage.sql.exec(
+        `CREATE TABLE IF NOT EXISTS notification_state (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          discord_status_message_id TEXT
+        )`,
+      );
     });
   }
 
@@ -150,6 +156,39 @@ export class DeploymentCoordinator extends DurableObject<Env> {
     await this.statePort.save(defaultState(Date.now()));
     safeLog("warn", "coordinator_reset");
     return this.status();
+  }
+
+  async sendCheckerEvent(
+    event: "heartbeat" | "status" | "failure" | "success",
+    summary: string,
+    metrics?: CheckerMetrics,
+  ): Promise<{ statusMessageId?: string }> {
+    const row = this.ctx.storage.sql
+      .exec<{ discord_status_message_id: string | null }>(
+        "SELECT discord_status_message_id FROM notification_state WHERE id = 1",
+      )
+      .toArray()[0];
+    const notifier = new DiscordNotifier(
+      this.env.DISCORD_WEBHOOK_URL,
+      this.env.STACK_LABEL,
+      this.env.OCI_REGION,
+      this.env.DISCORD_SUCCESS_USER_ID,
+    );
+    const statusMessageId = await notifier.sendCheckerEvent(
+      event,
+      summary,
+      metrics,
+      row?.discord_status_message_id ?? undefined,
+    );
+    if (statusMessageId) {
+      this.ctx.storage.sql.exec(
+        `INSERT INTO notification_state (id, discord_status_message_id)
+         VALUES (1, ?)
+         ON CONFLICT(id) DO UPDATE SET discord_status_message_id = excluded.discord_status_message_id`,
+        statusMessageId,
+      );
+    }
+    return statusMessageId ? { statusMessageId } : {};
   }
 
   private async scheduleNextRun(result: RunResult): Promise<void> {

@@ -108,9 +108,10 @@ export class DiscordNotifier implements DiscordPort {
     event: "heartbeat" | "status" | "failure" | "success",
     summary: string,
     metrics?: CheckerMetrics,
-  ): Promise<void> {
+    statusMessageId?: string,
+  ): Promise<string | undefined> {
     if (event === "heartbeat" && metrics) {
-      await this.send({
+      return this.upsertStatus({
         title: "🟣 Oracle A1 Capacity Watcher",
         description: "**Online and checking**\nNo A1 capacity is available yet. Automatic checks continue in the background.",
         color: 0x8b5cf6,
@@ -121,9 +122,8 @@ export class DiscordNotifier implements DiscordPort {
           { name: "🧠 RAM usage", value: usageBar(metrics.ramPercent), inline: false },
           { name: "⚙️ CPU usage", value: usageBar(metrics.cpuPercent), inline: false },
         ],
-        footer: { text: "Automatic claim is armed • Hourly status" },
-      });
-      return;
+        footer: { text: "Automatic claim is armed • Status every 15 minutes" },
+      }, statusMessageId);
     }
 
     const presentation = {
@@ -157,6 +157,49 @@ export class DiscordNotifier implements DiscordPort {
       },
       event === "success",
     );
+    return undefined;
+  }
+
+  private async upsertStatus(embed: {
+    title: string;
+    description: string;
+    color: number;
+    fields: Array<{ name: string; value: string; inline: boolean }>;
+    footer?: { text: string };
+  }, messageId?: string): Promise<string> {
+    const payload = {
+      username: "Oracle",
+      allowed_mentions: { parse: [] },
+      embeds: [{ ...embed, timestamp: new Date().toISOString() }],
+    };
+
+    if (messageId) {
+      const editUrl = new URL(this.webhookUrl);
+      editUrl.pathname = `${editUrl.pathname.replace(/\/$/, "")}/messages/${encodeURIComponent(messageId)}`;
+      const response = await this.fetcher(editUrl, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+        redirect: "manual",
+      });
+      if (response.ok) return messageId;
+      if (response.status !== 404) await this.throwDiscordError(response);
+    }
+
+    const createUrl = new URL(this.webhookUrl);
+    createUrl.searchParams.set("wait", "true");
+    const response = await this.fetcher(createUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+      redirect: "manual",
+    });
+    if (!response.ok) await this.throwDiscordError(response);
+    const message = await response.json() as { id?: unknown };
+    if (typeof message.id !== "string" || !/^\d{17,20}$/.test(message.id)) {
+      throw new Error("Discord did not return a valid status message ID");
+    }
+    return message.id;
   }
 
   private async send(embed: {
@@ -185,9 +228,11 @@ export class DiscordNotifier implements DiscordPort {
       redirect: "manual",
     });
 
-    if (!response.ok) {
-      const detail = sanitize(await readShortError(response));
-      throw new Error(`Discord webhook failed with HTTP ${response.status}${detail ? `: ${detail}` : ""}`);
-    }
+    if (!response.ok) await this.throwDiscordError(response);
+  }
+
+  private async throwDiscordError(response: Response): Promise<never> {
+    const detail = sanitize(await readShortError(response));
+    throw new Error(`Discord webhook failed with HTTP ${response.status}${detail ? `: ${detail}` : ""}`);
   }
 }

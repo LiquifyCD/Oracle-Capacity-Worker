@@ -1,5 +1,5 @@
 import { safeLog } from "./safe-log";
-import { DiscordNotifier, type CheckerMetrics } from "./discord";
+import type { CheckerMetrics } from "./discord";
 
 export { DeploymentCoordinator } from "./coordinator";
 
@@ -100,18 +100,12 @@ export default {
           }
           metrics = candidate as CheckerMetrics;
         }
-        const notifier = new DiscordNotifier(
-          env.DISCORD_WEBHOOK_URL,
-          env.STACK_LABEL,
-          env.OCI_REGION,
-          env.DISCORD_SUCCESS_USER_ID,
-        );
-        await notifier.sendCheckerEvent(
+        const result = await coordinator(env).sendCheckerEvent(
           body.event as (typeof events)[number],
           body.content,
           metrics,
         );
-        return json({ ok: true });
+        return json({ ok: true, ...result });
       }
       if (url.pathname === "/reset") {
         return json(await coordinator(env).reset());
